@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# GPU Buildpack – detect script
+#
+# The detect script is called by the CF staging process with $BUILD_DIR as
+# the first argument.  It must exit 0 if this buildpack should handle the app,
+# or exit 1 if the buildpack is not applicable.
+#
+# This buildpack is applicable when the app directory contains either:
+#   .gpu-enabled          – an empty marker file
+#   requirements-gpu.txt  – a GPU-specific Python requirements file
+
+set -euo pipefail
+
+BUILD_DIR="${1}"
+
+if [[ -f "${BUILD_DIR}/.gpu-enabled" ]]; then
+  echo "GPU buildpack: found .gpu-enabled marker"
+  exit 0
+fi
+
+if [[ -f "${BUILD_DIR}/requirements-gpu.txt" ]]; then
+  echo "GPU buildpack: found requirements-gpu.txt"
+  exit 0
+fi
+
+exit 1

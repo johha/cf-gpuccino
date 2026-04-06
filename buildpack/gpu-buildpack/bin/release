@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# GPU Buildpack – release script
+#
+# Outputs YAML describing the default start command and any configuration
+# the buildpack wants to communicate back to the CF runtime.
+# The output is consumed by CAPI during staging.
+
+set -euo pipefail
+
+cat << 'EOF'
+---
+default_process_types:
+  web: python app.py
+
+config:
+  # The GPU buildpack sets GPU-related environment variables via .profile.d/
+  # and does not mandate a specific web process type – override in Procfile.
+  gpu_buildpack_version: "1.0.0"
+  cdi_required: true
+EOF

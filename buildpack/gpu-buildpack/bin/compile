@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# GPU Buildpack – compile script
+#
+# Called by the CF staging process with:
+#   $1 = BUILD_DIR   – the app's source directory
+#   $2 = CACHE_DIR   – a persistent cache directory between builds
+#   $3 = ENV_DIR     – directory of files containing environment variables
+
+set -euo pipefail
+
+BUILD_DIR="${1}"
+CACHE_DIR="${2}"
+ENV_DIR="${3:-}"
+
+echo "-----> GPU Buildpack: compiling"
+
+# ---------------------------------------------------------------------------
+# Profile script
+# .profile.d/ scripts are sourced by the CF container at every app start.
+# ---------------------------------------------------------------------------
+PROFILE_DIR="${BUILD_DIR}/.profile.d"
+mkdir -p "${PROFILE_DIR}"
+
+PROFILE_SCRIPT="${PROFILE_DIR}/gpu-env.sh"
+
+cat > "${PROFILE_SCRIPT}" << 'EOF'
+# GPU environment – set by the GPU buildpack at staging time.
+# Sourced automatically by the CF container runtime on app start.
+
+# CUDA_VISIBLE_DEVICES is set by the Diego Executor via the CDI injection;
+# this default ensures CUDA code degrades gracefully if no GPU is present.
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-NoDevFiles}"
+
+# LD_LIBRARY_PATH must include the CUDA runtime libraries mounted into the
+# container by the NVIDIA CDI spec.
+export LD_LIBRARY_PATH="/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+# HIP_VISIBLE_DEVICES is the AMD/ROCm equivalent of CUDA_VISIBLE_DEVICES.
+export HIP_VISIBLE_DEVICES="${HIP_VISIBLE_DEVICES:-}"
+EOF
+
+echo "       Created .profile.d/gpu-env.sh"
+
+# ---------------------------------------------------------------------------
+# Install GPU-specific Python requirements (if present)
+# ---------------------------------------------------------------------------
+if [[ -f "${BUILD_DIR}/requirements-gpu.txt" ]]; then
+  echo "-----> GPU Buildpack: installing requirements-gpu.txt"
+  pip install \
+    --quiet \
+    --exists-action=w \
+    --src="${CACHE_DIR}/src" \
+    --requirement="${BUILD_DIR}/requirements-gpu.txt" \
+    2>&1 | sed 's/^/       /'
+  echo "       Done"
+fi
+
+echo "-----> GPU Buildpack: compile complete"

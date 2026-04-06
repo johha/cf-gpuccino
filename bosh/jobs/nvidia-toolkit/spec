@@ -1,0 +1,36 @@
+---
+name: nvidia-toolkit
+
+description: |
+  Installs and configures the NVIDIA Container Toolkit (nvidia-container-toolkit)
+  on GPU cells.  The toolkit enables CDI-based GPU injection into OCI containers
+  via garden-runc / runc.
+
+packages:
+  - nvidia-container-toolkit
+
+templates:
+  config.json.erb: etc/nvidia-container-toolkit/config.toml
+
+properties:
+  cdi_enabled:
+    description: |
+      Enable CDI (Container Device Interface) support in the NVIDIA container
+      runtime.  When true, nvidia-container-toolkit writes CDI spec files to
+      cdi_spec_dir so that garden-runc can resolve "nvidia.com/gpu=N" device
+      names at container creation time.
+    default: true
+
+  cdi_spec_dir:
+    description: |
+      Directory where CDI spec files are written by the nvidia-container-toolkit
+      post-start script and read by garden-runc.  Must match the value
+      configured in the garden job's --cdi-spec-dirs flag.
+    default: /var/vcap/data/cdi/specs
+
+  toolkit_root:
+    description: |
+      Root directory of the nvidia-container-toolkit installation.
+      The toolkit binaries (nvidia-container-runtime, nvidia-ctk, …) are
+      expected to be under <toolkit_root>/bin.
+    default: /var/vcap/packages/nvidia-container-toolkit

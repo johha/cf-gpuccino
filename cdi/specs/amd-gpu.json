@@ -1,0 +1,63 @@
+{
+  "cdiVersion": "0.5.0",
+  "kind": "amd.com/gpu",
+  "devices": [
+    {
+      "name": "amd0",
+      "containerEdits": {
+        "deviceNodes": [
+          {
+            "path": "/dev/kfd",
+            "type": "c",
+            "major": 238,
+            "minor": 0,
+            "permissions": "rwm"
+          },
+          {
+            "path": "/dev/dri/renderD128",
+            "type": "c",
+            "major": 226,
+            "minor": 128,
+            "permissions": "rwm"
+          },
+          {
+            "path": "/dev/dri/card0",
+            "type": "c",
+            "major": 226,
+            "minor": 0,
+            "permissions": "rwm"
+          }
+        ],
+        "env": [
+          "HIP_VISIBLE_DEVICES=0",
+          "ROCR_VISIBLE_DEVICES=0"
+        ]
+      }
+    }
+  ],
+  "containerEdits": {
+    "env": [
+      "HIP_PLATFORM=amd",
+      "LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/hip/lib:$LD_LIBRARY_PATH",
+      "PATH=/opt/rocm/bin:/opt/rocm/hip/bin:$PATH",
+      "ROCM_PATH=/opt/rocm"
+    ],
+    "mounts": [
+      {
+        "hostPath": "/opt/rocm/lib",
+        "containerPath": "/opt/rocm/lib",
+        "options": ["ro", "nosuid", "nodev", "bind"]
+      },
+      {
+        "hostPath": "/opt/rocm/bin",
+        "containerPath": "/opt/rocm/bin",
+        "options": ["ro", "nosuid", "nodev", "bind"]
+      },
+      {
+        "hostPath": "/opt/rocm/hip",
+        "containerPath": "/opt/rocm/hip",
+        "options": ["ro", "nosuid", "nodev", "bind"]
+      }
+    ]
+  }
+}
