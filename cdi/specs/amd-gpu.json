@@ -3,7 +3,7 @@
   "kind": "amd.com/gpu",
   "devices": [
     {
-      "name": "amd0",
+      "name": "0",
       "containerEdits": {
         "deviceNodes": [
           {

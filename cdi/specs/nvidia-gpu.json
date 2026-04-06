@@ -3,7 +3,7 @@
   "kind": "nvidia.com/gpu",
   "devices": [
     {
-      "name": "nvidia0",
+      "name": "0",
       "containerEdits": {
         "deviceNodes": [
           {

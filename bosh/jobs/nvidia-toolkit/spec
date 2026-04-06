@@ -10,7 +10,7 @@ packages:
   - nvidia-container-toolkit
 
 templates:
-  config.json.erb: etc/nvidia-container-toolkit/config.toml
+  config.toml.erb: etc/nvidia-container-toolkit/config.toml
 
 properties:
   cdi_enabled:

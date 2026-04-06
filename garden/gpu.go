@@ -20,7 +20,11 @@
 // the lists from a GPURequest.
 package garden
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // DeviceSpec describes a single host device to be exposed inside the container.
 // It maps to the OCI Linux.Devices entry.
@@ -117,8 +121,17 @@ func GPUContainerConfig(gpuType string, gpuIndices []uint, useCDI bool) Containe
 				},
 			)
 		}
+	}
+
+	// CUDA_VISIBLE_DEVICES expects a comma-separated list of device indices
+	// (e.g. "0,1") in a single environment variable – not one entry per GPU.
+	if len(gpuIndices) > 0 {
+		idxStrs := make([]string, len(gpuIndices))
+		for i, idx := range gpuIndices {
+			idxStrs[i] = strconv.FormatUint(uint64(idx), 10)
+		}
 		spec.Env = append(spec.Env,
-			fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", idx),
+			"CUDA_VISIBLE_DEVICES="+strings.Join(idxStrs, ","),
 		)
 	}
 
