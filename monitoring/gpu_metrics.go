@@ -18,6 +18,9 @@ import (
 // this package self-contained without a hard import cycle.
 type GPUManager interface {
 	TotalGPUs() int
+	// ContainerForGPU returns the container handle holding the given GPU index,
+	// or an empty string if the GPU is currently unallocated.
+	ContainerForGPU(gpuIndex uint) string
 }
 
 // GPUMetric carries a single GPU performance sample for one container.
@@ -61,10 +64,13 @@ func (c *GPUMetricsCollector) Collect(manager GPUManager) []GPUMetric {
 	now := time.Now()
 
 	for i := 0; i < total; i++ {
+		gpuIndex := uint(i)
 		// Simulated values – replace with NVML calls in production.
 		metrics = append(metrics, GPUMetric{
-			ContainerHandle:    "",
-			GPUIndex:           uint(i),
+			// Populate the container handle from the allocation table so that
+			// Loggregator can route the metric to the correct app log stream.
+			ContainerHandle:    manager.ContainerForGPU(gpuIndex),
+			GPUIndex:           gpuIndex,
 			UtilizationPercent: rand.Float64() * 100, //nolint:gosec // simulation only
 			MemoryUsedMiB:      uint64(rand.Intn(16000)), //nolint:gosec // simulation only
 			MemoryTotalMiB:     16160,

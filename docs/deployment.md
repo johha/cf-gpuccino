@@ -6,7 +6,7 @@
 
 | Requirement | Minimum version | Notes |
 |---|---|---|
-| NVIDIA GPU driver | 525.x | Install before BOSH stemcell |
+| NVIDIA GPU driver | 525.x | Must be pre-installed in the BOSH stemcell image, or installed via a post-start script before garden starts |
 | nvidia-container-toolkit | 1.14.x | Installed by the `nvidia-toolkit` BOSH job |
 | runc | 1.1.0 | Included in garden-runc; CDI support requires ≥ 1.1.0 |
 | Linux kernel | 5.4 (CGroup v1) / 5.10 (CGroup v2) | Ubuntu Jammy stemcell recommended |

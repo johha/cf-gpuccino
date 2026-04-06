@@ -42,7 +42,10 @@ func (h *GPUHandler) UpdateProcessGPU(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(h.currentResources)
+	if err := json.NewEncoder(w).Encode(h.currentResources); err != nil {
+		// The response header is already written; log the error for operators.
+		_ = err // TODO: replace with structured logger (e.g. lager) in production.
+	}
 }
 
 // GetProcessGPU handles GET /v3/processes/:guid/gpu
@@ -53,5 +56,8 @@ func (h *GPUHandler) UpdateProcessGPU(w http.ResponseWriter, r *http.Request) {
 func (h *GPUHandler) GetProcessGPU(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(h.currentResources)
+	if err := json.NewEncoder(w).Encode(h.currentResources); err != nil {
+		// The response header is already written; log the error for operators.
+		_ = err // TODO: replace with structured logger (e.g. lager) in production.
+	}
 }

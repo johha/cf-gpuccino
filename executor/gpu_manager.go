@@ -86,7 +86,12 @@ func discoverGPUs() ([]GPUInfo, error) {
 
 		// memory.total is reported as "16160 MiB"; strip the unit.
 		memStr := strings.TrimSuffix(strings.TrimSpace(parts[3]), " MiB")
-		memMiB, _ := strconv.ParseUint(memStr, 10, 64)
+		memMiB, err := strconv.ParseUint(memStr, 10, 64)
+		if err != nil {
+			// Log a warning and continue – an unparseable memory field is non-fatal
+			// but the value will be reported as 0, which may affect scheduling.
+			_ = fmt.Errorf("gpu_manager: could not parse memory for GPU %d: %w", idx, err)
+		}
 
 		gpus = append(gpus, GPUInfo{
 			Index:     uint(idx),
@@ -156,4 +161,12 @@ func (m *GPUManager) TotalGPUs() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.GPUs)
+}
+
+// ContainerForGPU returns the container handle currently allocated to the
+// given GPU index, or an empty string if the GPU is unallocated.
+func (m *GPUManager) ContainerForGPU(gpuIndex uint) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.allocated[gpuIndex]
 }
