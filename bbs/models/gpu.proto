@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package models;
+
+option go_package = "github.com/johha/cf-gpuccino/bbs/models";
+
+// GPURequest describes the GPU resources required by a workload.
+// gpu_type is expected to be "nvidia" or "amd"; leave empty for any.
+message GPURequest {
+  // Number of GPU devices to allocate (0 = no GPU required).
+  uint32 gpu_limit = 1;
+
+  // Preferred GPU vendor/type: "nvidia", "amd", or "" (any).
+  string gpu_type = 2;
+
+  // Optional explicit device indices to pin; empty means scheduler chooses.
+  repeated uint32 gpu_indices = 3;
+}
+
+// RunInfo holds the runtime configuration for a Diego Task or LRP.
+// The original RunInfo fields are not redefined here; this file only
+// extends/augments that message with GPU requirements for the prototype.
+message RunInfo {
+  // GPU requirements for this run. A zero-value GPURequest means no GPU.
+  GPURequest gpu_request = 100;
+}
+
+// DesiredLRPRunInfo is the run-info embedded inside a DesiredLRP.
+// It mirrors the extension above for the LRP path.
+message DesiredLRPRunInfo {
+  // GPU requirements for this LRP instance.
+  GPURequest gpu_request = 100;
+}
