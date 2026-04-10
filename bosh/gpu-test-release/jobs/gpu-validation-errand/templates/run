@@ -1,0 +1,132 @@
+#!/bin/bash
+set -e
+
+echo "=== GPU Validation Errand: $(date) ==="
+
+LOG_DIR=/var/vcap/sys/log/gpu-validation-errand
+mkdir -p "${LOG_DIR}"
+
+# Install NVIDIA driver if not already present
+echo "=== Installing NVIDIA Driver ==="
+DRIVER_VERSION="570"
+
+# Install pciutils if lspci is not available
+if ! command -v lspci &> /dev/null; then
+    echo "Installing pciutils..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq pciutils
+fi
+
+# Check instance type
+INSTANCE_TYPE=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-type 2>/dev/null || echo "unknown")
+echo "Instance type: ${INSTANCE_TYPE}"
+
+# Check if GPU hardware is present
+echo "Checking for NVIDIA GPU..."
+if ! lspci | grep -qi nvidia; then
+    echo "ERROR: No NVIDIA GPU detected"
+    echo "PCI devices:"
+    lspci | head -20
+    exit 1
+fi
+lspci | grep -i nvidia
+
+# Skip driver install if already works
+if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "NVIDIA driver already installed, skipping"
+else
+    echo "Installing NVIDIA driver ${DRIVER_VERSION}..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq software-properties-common
+    add-apt-repository -y ppa:graphics-drivers/ppa
+    apt-get update -qq
+
+    KERNEL_VERSION=$(uname -r)
+    apt-get install -y -qq linux-headers-${KERNEL_VERSION} || apt-get install -y -qq linux-headers-generic
+
+    apt-get install -y -qq \
+        nvidia-driver-${DRIVER_VERSION} \
+        nvidia-utils-${DRIVER_VERSION} || \
+    apt-get install -y -qq \
+        nvidia-headless-${DRIVER_VERSION}-server \
+        nvidia-utils-${DRIVER_VERSION}-server
+
+    echo "Driver installed, loading module..."
+    modprobe nvidia || echo "WARNING: Module load failed, may need reboot"
+fi
+
+# Verify nvidia-smi is available
+echo ""
+echo "=== Verifying NVIDIA Driver ==="
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+
+# Install Python and ML frameworks
+export DEBIAN_FRONTEND=noninteractive
+echo "Installing Python 3.11..."
+apt-get update -qq
+apt-get install -y -qq python3.11 python3.11-venv python3-pip
+
+# Create temporary virtualenv
+VENV_DIR=/var/vcap/data/tmp/gpu-validation-$$
+echo "Creating Python virtualenv..."
+mkdir -p /var/vcap/data/tmp
+python3.11 -m venv ${VENV_DIR}
+source ${VENV_DIR}/bin/activate
+
+# Install both frameworks (this is a validation tool, test everything!)
+# Install TensorFlow first, then PyTorch to avoid CUDA version conflict warnings
+echo "Installing PyTorch and TensorFlow..."
+${VENV_DIR}/bin/pip install --quiet --upgrade pip
+${VENV_DIR}/bin/pip install --quiet "numpy<2"
+${VENV_DIR}/bin/pip install --quiet tensorflow[and-cuda]
+${VENV_DIR}/bin/pip install --quiet torch --index-url https://download.pytorch.org/whl/cu121
+
+echo "Installed packages:"
+${VENV_DIR}/bin/pip list | grep -E "^(torch|tensorflow|numpy)"
+
+# Set LD_LIBRARY_PATH for TensorFlow CUDA libraries
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cublas/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cufft/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/curand/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cusolver/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cusparse/lib:${LD_LIBRARY_PATH}"
+
+# Suppress TensorFlow info/warning logs
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
+
+# Run tests for both frameworks
+echo ""
+echo "Running GPU validation tests..."
+${VENV_DIR}/bin/python /var/vcap/jobs/gpu-validation-errand/bin/test-gpu.py \
+    --framework both \
+    --matrix-size 4096 \
+    --iterations 10 \
+    --output "${LOG_DIR}/results.json" 2>&1 | grep -v "WARNING: All log messages\|I0000\|E0000"
+
+RESULT=$?
+
+# Cleanup
+echo ""
+echo "Cleaning up virtualenv..."
+rm -rf ${VENV_DIR}
+
+if [ ${RESULT} -eq 0 ]; then
+    echo ""
+    echo "=== GPU VALIDATION PASSED ==="
+    echo ""
+    echo "PyTorch Results:"
+    cat "${LOG_DIR}/results-pytorch.json" | python3 -m json.tool
+    echo ""
+    echo "TensorFlow Results:"
+    cat "${LOG_DIR}/results-tensorflow.json" | python3 -m json.tool
+    exit 0
+else
+    echo ""
+    echo "=== GPU VALIDATION FAILED ==="
+    exit ${RESULT}
+fi

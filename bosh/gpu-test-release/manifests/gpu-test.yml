@@ -1,0 +1,45 @@
+---
+# GPU Test Deployment - Lifecycle Errand
+#
+# Creates a GPU VM on-demand when the errand runs, then destroys it after completion.
+# This saves costs - the GPU instance only exists during test execution.
+#
+# Usage:
+#   bosh -d gpu-test deploy gpu-test.yml
+#   bosh -d gpu-test run-errand gpu-validation --keep-alive  # Optional: keep VM for debugging
+#   bosh -d gpu-test run-errand gpu-validation              # VM destroyed after run
+
+name: gpu-test
+
+releases:
+  - name: gpu-test
+    version: "3.1.0"
+
+stemcells:
+  - alias: default
+    os: ubuntu-jammy
+    version: latest
+
+instance_groups:
+  - name: gpu-validation
+    instances: 1
+    azs: [z1]
+    vm_type: gpu-small  # g4dn.xlarge with 1x NVIDIA T4
+    stemcell: default
+    networks:
+      - name: private
+
+    # Lifecycle errand - VM created on run-errand, destroyed after
+    lifecycle: errand
+
+    jobs:
+      - name: gpu-validation-errand
+        release: gpu-test
+
+update:
+  canaries: 1
+  max_in_flight: 1
+  canary_watch_time: 30000-1200000
+  update_watch_time: 30000-1200000
+
+variables: []

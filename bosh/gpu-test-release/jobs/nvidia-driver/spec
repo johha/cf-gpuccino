@@ -1,0 +1,21 @@
+---
+name: nvidia-driver
+
+description: |
+  Installs NVIDIA GPU driver 570 on the VM at deploy time.
+  Uses apt to install from Ubuntu graphics-drivers PPA.
+  Skips if already installed. For PoC/testing only.
+
+templates:
+  pre-start: bin/pre-start
+  post-start: bin/post-start
+  nvidia-driver-ctl: bin/nvidia-driver-ctl
+
+packages: []
+
+provides:
+  - name: nvidia-driver
+    type: nvidia-driver
+
+properties: {}
+

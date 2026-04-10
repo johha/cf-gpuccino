@@ -4,6 +4,25 @@ A reference/prototype implementation that extends Cloud Foundry to schedule, all
 
 ---
 
+## Current Status
+
+**Phase 1 (Foundation) - In Progress**
+
+✅ **Validated**: NVIDIA driver installation and GPU compute on BOSH-managed VMs
+- Lifecycle errand validates GPU functionality on-demand (VM created/destroyed per test)
+- Driver 570 installs and loads correctly on Ubuntu Jammy stemcell
+- GPU compute verified via comprehensive benchmarks (PyTorch & TensorFlow)
+- PyTorch: 4.2 TFLOPS FP32, 41 TFLOPS FP16 (Tensor Cores)
+- TensorFlow: 1.8 TFLOPS FP32, 5.6 TFLOPS FP16
+- Cost-effective testing: ~$0.10-0.15 per test run vs $14/day for persistent VM
+- See `bosh/gpu-test-release/` for the working BOSH release
+
+🚧 **Next**: Container GPU access via nvidia-container-toolkit
+
+See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) for PoC assumptions.
+
+---
+
 ## Architecture Diagram
 
 ```
@@ -127,13 +146,14 @@ cf-gpuccino/
 │       ├── nvidia-gpu.json            ← CDI spec for NVIDIA GPUs
 │       └── amd-gpu.json               ← CDI spec for AMD/ROCm GPUs
 ├── bosh/
+│   ├── gpu-test-release/              ← ✅ Working BOSH release for GPU validation
 │   ├── manifests/
-│   │   └── gpu-cell.yml               ← BOSH manifest excerpt
+│   │   └── gpu-cell.yml               ← BOSH manifest excerpt (reference)
 │   └── jobs/
 │       └── nvidia-toolkit/
-│           ├── spec                   ← BOSH job spec
+│           ├── spec                   ← BOSH job spec (reference)
 │           └── templates/
-│               └── config.json.erb    ← nvidia-container-toolkit config
+│               └── config.toml.erb    ← nvidia-container-toolkit config
 ├── buildpack/
 │   └── gpu-buildpack/
 │       └── README.md
@@ -141,15 +161,22 @@ cf-gpuccino/
 │   └── gpu_metrics.go                 ← GPU metrics → Loggregator
 └── docs/
     ├── architecture.md
-    └── deployment.md
+    ├── deployment.md
+    ├── roadmap.md                     ← Implementation phases
+    ├── shortcuts.md                   ← PoC assumptions & deferred work
+    └── stemcell-options.md            ← Driver packaging strategies
 ```
 
 ---
 
 ## Further Reading
 
+- [Roadmap](docs/roadmap.md) – Implementation phases and progress
 - [Architecture Details](docs/architecture.md)
 - [Deployment Guide](docs/deployment.md)
+- [Shortcuts & Assumptions](docs/shortcuts.md) – PoC trade-offs
+- [Stemcell Options](docs/stemcell-options.md) – Driver packaging strategies
+- [GPU Test Release](bosh/gpu-test-release/README.md) – Validate GPU on BOSH VMs
 - [GPU Buildpack](buildpack/gpu-buildpack/README.md)
 - [CDI Specification](https://github.com/cncf-tags/container-device-interface)
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html)

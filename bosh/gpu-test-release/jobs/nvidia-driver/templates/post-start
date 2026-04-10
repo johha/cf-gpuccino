@@ -1,0 +1,37 @@
+#!/bin/bash
+set -e
+
+LOG_DIR=/var/vcap/sys/log/nvidia-driver
+mkdir -p "${LOG_DIR}"
+exec > >(tee -a "${LOG_DIR}/post-start.log") 2>&1
+
+echo "=== NVIDIA Driver Post-Start: $(date) ==="
+
+# Verify nvidia-smi works
+echo "Verifying NVIDIA driver installation..."
+if ! command -v nvidia-smi &> /dev/null; then
+    echo "ERROR: nvidia-smi not found in PATH"
+    exit 1
+fi
+
+# Try nvidia-smi with retries (module may still be loading)
+MAX_RETRIES=5
+RETRY_DELAY=5
+
+for i in $(seq 1 ${MAX_RETRIES}); do
+    if nvidia-smi; then
+        echo ""
+        echo "=== GPU Details ==="
+        nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.free --format=csv
+        echo ""
+        echo "NVIDIA driver verification PASSED"
+        exit 0
+    fi
+    echo "nvidia-smi failed (attempt ${i}/${MAX_RETRIES}), retrying in ${RETRY_DELAY}s..."
+    sleep ${RETRY_DELAY}
+done
+
+echo "ERROR: nvidia-smi failed after ${MAX_RETRIES} attempts"
+echo "The kernel module may not have loaded. Check dmesg for errors:"
+dmesg | grep -i nvidia | tail -20 || true
+exit 1

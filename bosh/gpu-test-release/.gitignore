@@ -1,0 +1,25 @@
+# BOSH release build artifacts
+.dev_builds/
+dev_releases/
+.final_builds/
+releases/
+blobs/
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+venv/
+.venv/

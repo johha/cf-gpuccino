@@ -1,0 +1,64 @@
+#!/bin/bash
+set -e
+
+LOG_DIR=/var/vcap/sys/log/nvidia-driver
+mkdir -p "${LOG_DIR}"
+exec > >(tee -a "${LOG_DIR}/pre-start.log") 2>&1
+
+echo "=== NVIDIA Driver Pre-Start: $(date) ==="
+
+# Hardcoded for PoC - modify directly if needed
+DRIVER_VERSION="570"
+
+# Install pciutils if lspci is not available
+if ! command -v lspci &> /dev/null; then
+    echo "Installing pciutils..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq pciutils
+fi
+
+# Check instance type
+INSTANCE_TYPE=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-type 2>/dev/null || echo "unknown")
+echo "Instance type: ${INSTANCE_TYPE}"
+
+# Check if GPU hardware is present
+echo "Checking for NVIDIA GPU..."
+if ! lspci | grep -qi nvidia; then
+    echo "ERROR: No NVIDIA GPU detected"
+    echo "PCI devices:"
+    lspci | head -20
+    exit 1
+fi
+lspci | grep -i nvidia
+
+# Skip if driver already works
+if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "NVIDIA driver already installed, skipping"
+    nvidia-smi
+    exit 0
+fi
+
+echo "Installing NVIDIA driver ${DRIVER_VERSION}..."
+
+# Install driver
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq software-properties-common
+add-apt-repository -y ppa:graphics-drivers/ppa
+apt-get update -qq
+
+KERNEL_VERSION=$(uname -r)
+apt-get install -y -qq linux-headers-${KERNEL_VERSION} || apt-get install -y -qq linux-headers-generic
+
+apt-get install -y -qq \
+    nvidia-driver-${DRIVER_VERSION} \
+    nvidia-utils-${DRIVER_VERSION} || \
+apt-get install -y -qq \
+    nvidia-headless-${DRIVER_VERSION}-server \
+    nvidia-utils-${DRIVER_VERSION}-server
+
+echo "Driver installed, loading module..."
+modprobe nvidia || echo "WARNING: Module load failed, may need reboot"
+
+echo "=== NVIDIA Driver Pre-Start Complete ==="
