@@ -1,178 +1,148 @@
-# GPU Test BOSH Release
+# GPU Test Release
 
-A self-contained BOSH release for validating GPU support on BOSH-managed VMs.
+Validates GPU functionality using pre-compiled NVIDIA driver packages. Lifecycle errand creates a GPU VM on-demand, installs driver from BOSH packages, and runs PyTorch/TensorFlow validation tests.
 
 ## What It Does
 
-**Lifecycle errand** that creates a GPU VM on-demand, validates GPU functionality, then destroys the VM.
+- Installs NVIDIA driver from pre-compiled packages (~1 second)
+- Installs Python and ML frameworks (runtime)
+- Runs GPU validation tests (PyTorch, TensorFlow)
+- VM destroyed automatically after completion
 
-**Tests Both Frameworks:**
-- PyTorch 2.5.1+cu121
-- TensorFlow 2.21.0
-
-**3 Simple Tests:**
-1. **GPU detection** - Verifies CUDA is available
-2. **FP32 matrix multiplication** - Validates baseline compute (TFLOPS)
-3. **FP16 matrix multiplication** - Validates Tensor Cores (speedup vs FP32)
-
-**PoC Design:**
-- No configuration needed (hardcoded values)
-- Tests everything automatically
-- Clean, repeatable validation
-- **Cost-effective**: VM only exists during test execution (~5-10 minutes)
-
-No manual SSH required.
-
-## Architecture
-
-This release uses **pure bash and Python scripts** without ERB templating:
-- All scripts are self-contained bash/Python (no `.erb` files)
-- No properties needed - hardcoded values for PoC
-- Single lifecycle errand installs driver + runs tests + cleans up
-
-**Lifecycle Errand:**
-- `bosh deploy` creates deployment metadata (no VM)
-- `bosh run-errand` creates VM → installs driver → runs tests → destroys VM
-- You only pay for GPU instance during test execution
-
----
-
-## Jobs
-
-### gpu-validation-errand
-
-Lifecycle errand that:
-1. Installs NVIDIA driver 570 from Ubuntu graphics-drivers PPA
-2. Installs Python 3.11 + PyTorch + TensorFlow in a temporary virtualenv
-3. Runs 3 validation tests (GPU detection, FP32 matmul, FP16 matmul)
-4. Reports results for both frameworks
-5. Cleans up (temp virtualenv removed)
-
-**No properties needed** - always tests both PyTorch and TensorFlow with standard settings (4096x4096 matrices, 10 iterations).
 
 ## Usage
 
-### Prerequisites
-
-1. BOSH director with GPU-enabled cloud config (vm_type with GPU instance and 30GB+ root disk)
-2. Ubuntu Jammy stemcell (HVM variant for AWS)
-
-### Deploy
-
 ```bash
-# From the bbl-state directory
-cd ~/SAPDevelop/ghtools/bbl-cantina-state/environments/han/bbl-state
-eval "$(bbl print-env)"
+# Deploy
+bosh -d gpu-test deploy bosh/gpu-test-release/manifests/gpu-test.yml
 
-# Create and upload the release
-RELEASE_DIR=~/SAPDevelop/ghcom/cf-gpuccino/bosh/gpu-test-release
-bosh create-release --dir=${RELEASE_DIR} --version=3.1.0 --force
-bosh upload-release --dir=${RELEASE_DIR}
-
-# Deploy (creates deployment metadata, no VM created)
-bosh -d gpu-test deploy ${RELEASE_DIR}/manifests/gpu-test.yml
-
-# Run validation errand (creates VM, installs driver, runs tests, destroys VM)
-# Takes ~10-15 min: 5-7 min for driver install + 3-5 min for framework install/test
-bosh -d gpu-test run-errand gpu-validation
-
-# Optional: Keep VM alive for debugging
-bosh -d gpu-test run-errand gpu-validation --keep-alive
-
-# Run again anytime (fresh VM each time)
-bosh -d gpu-test run-errand gpu-validation
+# Run validation errand
+bosh -d gpu-test run-errand gpu-validation-errand
 ```
 
-### Check Results
-
-```bash
-# Errand output shows results directly in the console
-bosh -d gpu-test run-errand gpu-validation
-
-# If you used --keep-alive, you can SSH to check logs
-bosh -d gpu-test ssh gpu-validation/0 -c "cat /var/vcap/sys/log/gpu-validation-errand/results-pytorch.json"
-bosh -d gpu-test ssh gpu-validation/0 -c "cat /var/vcap/sys/log/gpu-validation-errand/results-tensorflow.json"
-
-# View nvidia-smi output
-bosh -d gpu-test ssh gpu-validation/0 -c "nvidia-smi"
+Expected output:
+```
+✅ Driver installation complete (took ~1 second)
+✅ Tesla T4, 570.211.01, 15360 MiB
+✅ PyTorch tests PASSED
+✅ TensorFlow tests PASSED
+✅ GPU VALIDATION PASSED
 ```
 
-### Cleanup
+## Architecture
 
-```bash
-# Delete deployment (no cost impact since VM is already destroyed after errand)
-bosh -d gpu-test delete-deployment
+The release uses pre-compiled NVIDIA driver packages:
 
-# If you used --keep-alive and the VM is still running:
-bosh -d gpu-test stop gpu-validation  # Stops VM
-bosh -d gpu-test delete-deployment    # Removes deployment
+```
+packages/
+├── nvidia-driver-570/
+│   ├── module.tar.gz  - Kernel modules
+│   ├── tools.tar.gz   - nvidia-smi
+│   └── libs.tar.gz    - CUDA libraries
+└── nvidia-container-toolkit/
+    └── toolkit.deb    - nvidia-ctk
+
+jobs/
+└── gpu-validation-errand/
+    ├── run            - Installs driver from packages
+    └── test-gpu.py    - Validation tests
 ```
 
-## Expected Results
+## Pre-Compiled Driver Packages
 
-On a Tesla T4 (g4dn.xlarge), both PyTorch and TensorFlow tests should pass:
+Packages contain artifacts compiled by `nvidia-compile-release`:
 
-**PyTorch:**
-- FP32: ~4.2 TFLOPS
-- FP16: ~41 TFLOPS (9-10x speedup via Tensor Cores)
+**module.tar.gz** - Kernel modules:
+- nvidia.ko (main driver)
+- nvidia-uvm.ko (unified memory)
+- nvidia-modeset.ko, nvidia-drm.ko, etc.
 
-**TensorFlow:**
-- FP32: ~1.8 TFLOPS
-- FP16: ~5.6 TFLOPS (3x speedup)
+**tools.tar.gz** - Management tools:
+- nvidia-smi
 
-PyTorch generally shows better GPU performance, especially with Tensor Cores.
+**libs.tar.gz** - CUDA libraries:
+- libnvidia-*.so, libcuda.so
 
-All 3 tests should report `"status": "PASSED"` for both frameworks.
+**toolkit.deb** - Container toolkit:
+- nvidia-ctk for container GPU access
 
-## Cost
+### Updating Packages
 
-| Instance Type | GPU | Cost (eu-west-1) | Cost per Test Run |
-|---------------|-----|------------------|-------------------|
-| g4dn.xlarge | 1x T4 | ~$0.58/hour | ~$0.10-0.15 |
-| g4dn.2xlarge | 1x T4 | ~$0.90/hour | ~$0.15-0.23 |
-| g5.xlarge | 1x A10G | ~$1.00/hour | ~$0.17-0.25 |
+When stemcell or driver version changes, recompile using `nvidia-compile-release`:
 
-**Lifecycle errand advantage**: VM only exists for ~10-15 minutes per test run, not 24/7. Each test costs ~$0.10-0.25 instead of $14/day for a persistent VM.
+```bash
+# 1. Compile artifacts (see ../nvidia-compile-release/README.md)
+cd bosh/nvidia-compile-release
+bosh -d nvidia-compile deploy manifest.yml  # Update stemcell version first
+bosh -d nvidia-compile run-errand compile-nvidia --keep-alive
+
+# 2. Download artifacts
+cd ../
+bosh -d nvidia-compile scp compile/0:/var/vcap/data/nvidia-compile/*.tar.gz ./driver-artifacts/
+bosh -d nvidia-compile scp compile/0:/var/vcap/data/nvidia-compile/*.deb ./driver-artifacts/
+
+# 3. Add as blobs
+cd gpu-test-release
+bosh add-blob ../driver-artifacts/module.tar.gz nvidia-driver-570/module.tar.gz
+bosh add-blob ../driver-artifacts/tools.tar.gz nvidia-driver-570/tools.tar.gz
+bosh add-blob ../driver-artifacts/libs.tar.gz nvidia-driver-570/libs.tar.gz
+bosh add-blob ../driver-artifacts/toolkit.deb nvidia-container-toolkit/toolkit.deb
+
+# 4. Create and upload release
+bosh create-release --force --tarball=/tmp/gpu-test.tgz
+bosh upload-release /tmp/gpu-test.tgz
+
+# 5. Update stemcell version in manifests/gpu-test.yml to match
+```
+
+## Validation Tests
+
+### PyTorch
+- GPU detection
+- FP32 matrix multiplication (4096x4096)
+- FP16 matrix multiplication (Tensor Cores)
+
+### TensorFlow
+- GPU detection  
+- FP32 matrix multiplication (4096x4096)
+- FP16 matrix multiplication (Tensor Cores)
+
+Both output JSON results for automation.
+
+## Configuration
+
+### Stemcell Version
+
+**Critical:** Must match kernel version used to compile driver modules.
+
+```yaml
+stemcells:
+  - alias: default
+    os: ubuntu-jammy
+    version: "1.1123"  # Must match nvidia-compile-release
+```
+
+Kernel modules compiled for 5.15.0-173-generic will NOT work on 5.15.0-175-generic.
+
+### VM Type
+
+```yaml
+instance_groups:
+  - name: gpu-validation
+    vm_type: gpu-small  # g4dn.xlarge with Tesla T4
+```
 
 ## Troubleshooting
 
-**"No space left on device" during driver install:**
-- Root disk too small. GPU vm_type needs 30GB+ root disk.
-- Check cloud-config: `root_disk: { size: 30720, type: gp3 }`
+### "modprobe: ERROR: could not insert 'nvidia'"
 
-**nvidia-smi not found:**
-- Driver installation failed during errand execution
-- Check errand output for error details
-- Try running again: `bosh -d gpu-test run-errand gpu-validation`
+Kernel version mismatch. Stemcell version must match the one used in nvidia-compile-release.
 
-**CUDA not available in PyTorch:**
-- Rare. Driver module load may have failed
-- Run errand again - fresh VM will get clean driver install
+Check kernel: `bosh -d gpu-test ssh gpu-validation/0 -c "uname -r"`
 
-**First run takes 10-15 minutes:**
-- Normal. Driver DKMS compile (5-7 min) + ML framework download (3-5 min)
-- Subsequent runs take the same time since VM is destroyed and recreated each time
+### "No GPU detected"
 
-**Errand times out:**
-- Default timeout may be too short for slow networks
-- Increase with: `bosh -d gpu-test run-errand gpu-validation --download-logs`
+Wrong VM type or GPU not available. Verify `vm_type: gpu-small` points to GPU instance.
 
-## Cloud Config Requirements
-
-The gpu-small vm_type needs a larger root disk for NVIDIA drivers:
-
-```yaml
-vm_types:
-- name: gpu-small
-  cloud_properties:
-    instance_type: g4dn.xlarge
-    root_disk:
-      size: 30720  # 30GB - required for NVIDIA driver packages
-      type: gp3
-    ephemeral_disk:
-      size: 51200
-      type: gp3
-```
-
-See `gpu-ops.yml` in the bbl-state cloud-config directory.
+Check: `bosh -d gpu-test ssh gpu-validation/0 -c "lspci | grep -i nvidia"`
 

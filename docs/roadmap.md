@@ -13,13 +13,18 @@ The groundwork that every other phase depends on.
 - [x] **GPU test BOSH release** – validate NVIDIA driver installation on BOSH-managed
   VMs using Ubuntu Jammy stemcell. Proves driver + kernel compatibility.
   See `bosh/gpu-test-release/`.
-- [ ] **NVIDIA driver BOSH release (compiled)** – pre-compiled driver package for
-  fast deployment (~2-3 min vs 10-15 min runtime install). Supports multiple
-  driver versions via properties.
+- [x] **NVIDIA driver compilation release** – pre-compiled driver packages via
+  `nvidia-compile-release`. Compiles kernel modules for specific stemcell kernel,
+  packages as BOSH blobs. See `bosh/nvidia-compile-release/`.
+- [x] **Pre-compiled driver packages** – gpu-test-release uses pre-compiled
+  BOSH packages for fast driver installation (~1 second vs 5-7 min DKMS).
+  Artifacts tracked with git-lfs in `bosh/driver-artifacts/`.
+- [x] **nvidia-container-toolkit package** – packaged as BOSH blob, ready for
+  GPU cell deployment.
 - [ ] **BOSH stemcell with NVIDIA driver (production)** – for production workloads,
   produce a Ubuntu Jammy stemcell variant with pre-baked NVIDIA kernel module
   and user-space driver. Eliminates runtime driver install entirely.
-  (Shortcut: deferred - see [shortcuts.md](shortcuts.md))
+  (Alternative approach validated with pre-compiled packages)
 - [ ] **`nvidia-toolkit` BOSH job** – install and configure
   `nvidia-container-toolkit` on GPU cells; enable CDI mode by default.
 - [ ] **`nvidia-persistenced` BOSH job** – keep driver state alive between

@@ -13,12 +13,12 @@ name: gpu-test
 
 releases:
   - name: gpu-test
-    version: "3.1.0"
+    version: latest
 
 stemcells:
   - alias: default
     os: ubuntu-jammy
-    version: latest
+    version: "1.1123"  # Pinned - matches compiled driver kernel
 
 instance_groups:
   - name: gpu-validation

@@ -1,0 +1,149 @@
+#!/bin/bash
+set -eux
+
+export DEBIAN_FRONTEND=noninteractive
+
+DRIVER_VERSION=570.211.01
+WORK_DIR=/var/vcap/data/nvidia-compile
+KERNEL_VERSION=$(uname -r)
+INSTALLER_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${DRIVER_VERSION}/NVIDIA-Linux-x86_64-${DRIVER_VERSION}.run"
+
+echo "=== NVIDIA Driver Compilation Errand ==="
+echo "Kernel: ${KERNEL_VERSION}"
+echo "Driver: ${DRIVER_VERSION}"
+echo "Output: ${WORK_DIR}"
+echo "Time: $(date)"
+echo ""
+
+# Clean work directory
+echo "[1/8] Cleaning work directory..."
+sudo rm -rf ${WORK_DIR}
+sudo mkdir -p ${WORK_DIR}
+cd ${WORK_DIR}
+echo "       Working in: $(pwd)"
+echo "       Disk space: $(df -h /var/vcap/data | tail -1)"
+
+echo "[2/8] Installing build prerequisites..."
+echo "       Starting at $(date)"
+sudo apt-get update -qq
+sudo apt-get install -y -qq build-essential linux-headers-${KERNEL_VERSION} curl
+echo "       Prerequisites installed at $(date)"
+
+echo "[3/8] Downloading NVIDIA driver installer..."
+echo "       URL: ${INSTALLER_URL}"
+echo "       Started at $(date)"
+curl -fSL -o installer.run "${INSTALLER_URL}"
+sudo chmod +x installer.run
+echo "       Downloaded: $(ls -lh installer.run | awk '{print $9, $5}')"
+echo "       Completed at $(date)"
+
+echo "[4/8] Running NVIDIA installer (silent mode with kernel module compilation)..."
+echo "       This will take 5-7 minutes for compilation"
+echo "       Started at $(date)"
+mkdir -p ${WORK_DIR}/tmp
+export TMPDIR=${WORK_DIR}/tmp
+sudo -E ./installer.run \
+    --silent \
+    --no-questions \
+    --ui=none \
+    --tmpdir=${WORK_DIR}/tmp \
+    --no-kernel-module-source \
+    --kernel-source-path=/lib/modules/${KERNEL_VERSION}/build \
+    --log-file-name=${WORK_DIR}/nvidia-installer.log \
+    --no-x-check \
+    --no-nouveau-check \
+    --no-systemd
+echo "       Installer completed at $(date)"
+
+echo "[5/8] Verifying compilation..."
+if [ ! -f "/lib/modules/${KERNEL_VERSION}/kernel/drivers/video/nvidia.ko" ] && \
+   [ ! -f "/lib/modules/${KERNEL_VERSION}/updates/dkms/nvidia.ko" ]; then
+    echo "ERROR: nvidia.ko not found!"
+    echo "Searching for kernel modules:"
+    find /lib/modules/${KERNEL_VERSION} -name "nvidia*.ko" || true
+    echo "Installer log:"
+    tail -100 ${WORK_DIR}/nvidia-installer.log
+    exit 1
+fi
+echo "       Found nvidia.ko"
+
+
+echo "[6/8] Packaging kernel modules..."
+mkdir -p module
+# Find and copy nvidia modules (installer may put them in different locations)
+find /lib/modules/${KERNEL_VERSION} -name "nvidia*.ko" -exec sudo cp {} module/ \;
+echo "       Copied $(ls -1 module/ | wc -l) kernel modules"
+sudo tar -czf module.tar.gz -C module .
+sudo chmod 644 module.tar.gz
+echo "       Created: $(ls -lh module.tar.gz | awk '{print $9, $5}')"
+
+echo "[7/8] Packaging tools and libraries..."
+mkdir -p tools libs
+sudo cp /usr/bin/nvidia-smi tools/ 2>/dev/null || true
+sudo cp /usr/bin/nvidia-debugdump tools/ 2>/dev/null || true
+sudo cp /usr/bin/nvidia-persistenced tools/ 2>/dev/null || true
+echo "       Copied $(ls -1 tools/ | wc -l) tools"
+sudo tar -czf tools.tar.gz -C tools .
+sudo chmod 644 tools.tar.gz
+echo "       Created: $(ls -lh tools.tar.gz | awk '{print $9, $5}')"
+
+# Package libraries
+cd /usr/lib/x86_64-linux-gnu
+LIB_COUNT=0
+for lib in libnvidia-*.so.${DRIVER_VERSION}* libcuda.so.${DRIVER_VERSION}*; do
+    if [ -e "$lib" ]; then
+        sudo cp -L "$lib" ${WORK_DIR}/libs/
+        LIB_COUNT=$((LIB_COUNT + 1))
+    fi
+done
+cd ${WORK_DIR}
+echo "       Copied ${LIB_COUNT} libraries"
+sudo tar -czf libs.tar.gz -C libs .
+sudo chmod 644 libs.tar.gz
+echo "       Created: $(ls -lh libs.tar.gz | awk '{print $9, $5}')"
+
+echo "[8/8] Downloading nvidia-container-toolkit..."
+# Configure apt to use persistent disk for cache
+sudo mkdir -p /var/vcap/data/apt/archives
+sudo mkdir -p /var/vcap/data/apt/lists
+cat <<EOF | sudo tee /etc/apt/apt.conf.d/99-use-vcap-cache > /dev/null
+Dir::Cache::Archives "/var/vcap/data/apt/archives";
+Dir::State::Lists "/var/vcap/data/apt/lists";
+EOF
+
+echo "       Adding GPG key..."
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey 2>/dev/null | \
+    sudo gpg --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+echo "       Adding repository..."
+echo "deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/amd64 /" | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
+echo "       Updating package list..."
+sudo apt-get update -qq
+echo "       Downloading package..."
+cd ${WORK_DIR}
+apt-get download nvidia-container-toolkit
+sudo mv nvidia-container-toolkit*.deb toolkit.deb
+sudo chmod 644 toolkit.deb
+echo "       Downloaded: $(ls -lh toolkit.deb | awk '{print $9, $5}')"
+
+sudo chmod 755 ${WORK_DIR}
+
+echo ""
+echo "=== Compilation Complete at $(date) ==="
+echo ""
+echo "Artifacts in ${WORK_DIR}:"
+ls -lh ${WORK_DIR}/*.tar.gz ${WORK_DIR}/*.deb
+echo ""
+echo "Disk usage:"
+df -h /var/vcap/data
+echo ""
+echo "To download artifacts:"
+echo "  cd /Users/D059372/SAPDevelop/ghcom/cf-gpuccino/bosh"
+echo "  bosh -d nvidia-compile scp compile/0:/var/vcap/data/nvidia-compile/module.tar.gz ./driver-artifacts/"
+echo "  bosh -d nvidia-compile scp compile/0:/var/vcap/data/nvidia-compile/tools.tar.gz ./driver-artifacts/"
+echo "  bosh -d nvidia-compile scp compile/0:/var/vcap/data/nvidia-compile/libs.tar.gz ./driver-artifacts/"
+echo "  bosh -d nvidia-compile scp compile/0:/var/vcap/data/nvidia-compile/toolkit.deb ./driver-artifacts/"
+echo ""
+echo "VM will remain running. To delete:"
+echo "  bosh -d nvidia-compile delete-deployment"
+echo ""

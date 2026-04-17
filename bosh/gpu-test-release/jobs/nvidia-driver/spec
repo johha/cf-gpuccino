@@ -2,16 +2,17 @@
 name: nvidia-driver
 
 description: |
-  Installs NVIDIA GPU driver 570 on the VM at deploy time.
-  Uses apt to install from Ubuntu graphics-drivers PPA.
-  Skips if already installed. For PoC/testing only.
+  Installs NVIDIA GPU driver 570 from pre-compiled BOSH packages.
+  Fast deployment (~30 seconds) with pinned stemcell kernel.
 
 templates:
   pre-start: bin/pre-start
   post-start: bin/post-start
   nvidia-driver-ctl: bin/nvidia-driver-ctl
 
-packages: []
+packages:
+- nvidia-driver-570
+- nvidia-container-toolkit
 
 provides:
   - name: nvidia-driver

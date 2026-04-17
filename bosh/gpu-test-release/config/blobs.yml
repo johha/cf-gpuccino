@@ -1,1 +1,12 @@
-{}
+nvidia-container-toolkit/toolkit.deb:
+  size: 1332624
+  sha: sha256:67646131039f89a3365bd3832ed9ee67e1ecc54145c8874a31fd0375b204f71f
+nvidia-driver-570/libs.tar.gz:
+  size: 171179251
+  sha: sha256:13edc541b9f18984d2d379c488e0d715e34f662e11bae9920b2f75dec1e44713
+nvidia-driver-570/module.tar.gz:
+  size: 100332742
+  sha: sha256:99c9f776e6b1c8ee6e633eaafb35e806d89da14a008e7905e11a38e4e62e3c48
+nvidia-driver-570/tools.tar.gz:
+  size: 583867
+  sha: sha256:7d1e7aded794f005c668d87b118fe41e44af2a63e6756dc6308a89a14de4a214

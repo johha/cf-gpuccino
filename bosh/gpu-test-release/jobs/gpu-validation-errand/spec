@@ -13,7 +13,9 @@ templates:
   run: bin/run
   test-gpu.py: bin/test-gpu.py
 
-packages: []
+packages:
+  - nvidia-driver-570
+  - nvidia-container-toolkit
 
 properties: {}
 

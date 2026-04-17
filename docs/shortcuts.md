@@ -7,34 +7,39 @@ for a production implementation.
 
 ## Accepted Shortcuts
 
-### 1. Runtime Driver Installation (vs Custom Stemcell)
+### 1. Pre-Compiled Driver Packages (vs Custom Stemcell)
 
-**Current state**: NVIDIA driver is installed via apt at deploy time (~10-15 min).
+**Current state**: NVIDIA driver installed from pre-compiled BOSH packages (~1 second).
 
-**Production approach**: Custom stemcell with pre-baked driver (~1 min deploy).
+**Production approach**: Custom stemcell with pre-baked driver (zero install time).
 
 **Why this is acceptable**:
-- We've validated that the driver installs and works correctly on the Ubuntu Jammy
-  stemcell kernel (5.15.x)
-- The technical risk is retired - it's now a question of effort/knowledge to build
-  the custom stemcell
-- For PoC/development, the runtime install is sufficient
+- Pre-compiled packages reduce driver install from 5-7 min to ~1 second
+- Validated approach on Ubuntu Jammy stemcell kernel (5.15.0-173-generic)
+- For GPU validation errands and testing, this is sufficient
+- Custom stemcells recommended for production Diego GPU cells
 
 **Effort to fix**: 1-2 weeks (learn stemcell-builder, add NVIDIA stage, set up CI).
 
 **See also**: [Stemcell Options](stemcell-options.md)
 
+**What we've built**:
+- `nvidia-compile-release` - compiles driver for specific stemcell kernel
+- `gpu-test-release` - uses pre-compiled packages via BOSH blobs
+- Driver artifacts tracked with git-lfs
+
 ---
 
-### 2. GPU Validation Tests Run Manually
+### 2. GPU Validation Tests Run as Errand
 
-**Current state**: The `gpu-validation` job installs PyTorch but tests must be
-triggered manually via `run-validation` script.
+**Current state**: The `gpu-validation-errand` runs on-demand, creates VM, tests GPU, 
+then destroys VM automatically.
 
-**Production approach**: Tests should run automatically during post-start and
-report results to BOSH health monitoring.
+**Production approach**: For Diego GPU cells, tests would run during post-start and
+report to BOSH health monitoring.
 
-**Why this is acceptable**: Manual testing is fine for PoC validation.
+**Why this is acceptable**: Errand-based validation is perfect for development and
+cost-effective for testing. Validates the pre-compiled driver approach.
 
 ---
 
@@ -79,9 +84,9 @@ These items are **not shortcuts** - they've been fully validated:
 
 ## Future Work
 
-When moving toward production, address these shortcuts in order:
+When moving toward production, address these in order:
 
-1. **Compiled BOSH release** - Pre-package driver binaries (medium effort)
-2. **Custom stemcell** - Bake driver into stemcell image (higher effort)
+1. ~~**Compiled BOSH release**~~ - ✅ Complete (nvidia-compile-release + pre-compiled packages)
+2. **Custom stemcell** - Bake driver into stemcell image (higher effort, optional)
 3. **Multi-GPU testing** - Validate on A10G, A100 instances
 4. **Container integration** - nvidia-container-toolkit + Garden changes

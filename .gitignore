@@ -1,0 +1,14 @@
+# Claude session data
+.claude/
+
+# BOSH artifacts
+*.tgz
+dev_releases/
+.dev_builds/
+.final_builds/
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store

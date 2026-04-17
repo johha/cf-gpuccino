@@ -4,13 +4,13 @@ This document describes options for deploying NVIDIA drivers on BOSH-managed GPU
 
 ## The Problem
 
-Installing NVIDIA drivers at deploy time (via apt) takes **10-15 minutes** per VM because:
-1. Download ~1.5GB of packages from Ubuntu repos
-2. DKMS compiles kernel module against running kernel
+Installing NVIDIA drivers at deploy time (via apt) takes **5-7 minutes** per VM because:
+1. Download packages from Ubuntu repos
+2. DKMS compiles kernel module against running kernel (~5-7 min)
 3. Module loading and verification
 
-For production GPU cells, this is unacceptable:
-- Slow scaling when adding new cells
+For production GPU cells and frequent testing, this is slow:
+- Slow iteration during development
 - Long recovery time if a cell is recreated
 - External dependency on Ubuntu apt repos
 
@@ -52,24 +52,32 @@ bosh-aws-xen-hvm-ubuntu-jammy-go_agent-nvidia570
 
 ---
 
-### Option 2: BOSH Package with Pre-compiled Driver
+### Option 2: BOSH Package with Pre-compiled Driver ✅ Implemented
 
 Package the NVIDIA driver as a BOSH blob and copy at deploy time.
 
 **Pros:**
-- Faster than apt (no download, no DKMS compile)
+- Very fast deployment (~1 second driver install)
 - Works with standard stemcells
 - Version controlled in BOSH release
+- No external dependencies at deploy time
 
 **Cons:**
 - Must match kernel version exactly
-- Requires rebuilding package when stemcell kernel changes
-- More complex packaging
+- Requires recompiling when stemcell kernel changes
 
 **Implementation:**
-1. Compile nvidia.ko on a matching stemcell
-2. Package as BOSH blob (driver binaries + kernel module)
-3. Job copies files and runs `insmod` / `modprobe`
+✅ **Complete** - See `bosh/nvidia-compile-release/` and `bosh/gpu-test-release/`
+
+1. Compile driver using `nvidia-compile-release` (one-time per stemcell version)
+2. Package as BOSH blobs (module.tar.gz, tools.tar.gz, libs.tar.gz)
+3. Job copies files and runs `modprobe`
+
+**Measured Performance:**
+- Driver installation: ~1 second (vs 5-7 min DKMS)
+- Compilation time: ~10 min (one-time per stemcell)
+
+**See:** `bosh/nvidia-compile-release/README.md` for details
 
 ---
 
@@ -128,39 +136,44 @@ Keep spare GPU VMs in a "warm" state with drivers pre-installed.
 
 ## Comparison
 
-| Option | Deploy Time | Maintenance | Production Ready |
-|--------|------------|-------------|------------------|
-| Custom Stemcell | ~1 min | High | Yes |
-| BOSH Package | ~2-3 min | Medium | Yes |
-| AWS GPU AMI | ~1 min | Low | Maybe |
-| Local Apt Mirror | ~7-8 min | Low | Partial |
-| Warm Pool | ~1 min | Medium | Yes |
+| Option | Deploy Time | Maintenance | Production Ready | Status |
+|--------|------------|-------------|------------------|--------|
+| Custom Stemcell | ~0 sec | High | Yes | Future |
+| **BOSH Package** | **~1 sec** | **Medium** | **Yes** | **✅ Implemented** |
+| AWS GPU AMI | ~0 sec | Low | Maybe | Not pursued |
+| Local Apt Mirror | ~7-8 min | Low | Partial | Not pursued |
+| Warm Pool | ~0 sec | Medium | Yes | Not needed |
 
 ---
 
 ## Recommendation
 
-**For PoC/Development:** Runtime apt install (current approach in `gpu-test-release`) is fine.
-Allows easy testing of different driver versions.
+**Current Status:** ✅ Pre-compiled BOSH packages implemented (Option 2)
+- Driver installation: ~1 second
+- Validated with PyTorch and TensorFlow
+- Production-ready approach
 
-**For Pre-Production:** Compiled BOSH release with pre-built driver blobs.
-Reduces deploy time from 10-15 min to 2-3 min while still using standard stemcells.
+**For Development/Testing:** Use pre-compiled BOSH packages (current implementation).
+Fast iteration, works with standard stemcells.
 
-**For Production CF GPU Cells:** Custom stemcell with pre-installed driver.
-The stemcell approach ensures:
-- Predictable, fast deploys (~1 min)
-- No external dependencies during cell creation
-- Consistent driver versions across the fleet
-- Simpler troubleshooting (driver issues are stemcell issues)
+**For Production CF GPU Cells:** Two viable options:
 
-### Recommended Path
+1. **Pre-compiled BOSH packages** (current) - Ready to use now
+   - ~1 second driver install
+   - Medium maintenance (recompile on stemcell updates)
+   - Works with standard stemcells
 
-1. Start with runtime apt install (current PoC)
-2. Move to compiled release for staging/pre-prod
-3. Build custom stemcell for production
+2. **Custom stemcell** (future) - Zero runtime install
+   - Eliminates driver installation entirely
+   - Higher maintenance (stemcell pipeline)
+   - Best for large-scale deployments
 
-This hybrid approach allows flexibility during development while ensuring
-production readiness.
+### Current Implementation
+
+✅ `nvidia-compile-release` - Compiles driver for specific stemcell  
+✅ `gpu-test-release` - Uses pre-compiled packages  
+✅ Driver artifacts tracked with git-lfs  
+✅ Validated on Tesla T4 with stemcell 1.1123
 
 ---
 
@@ -168,5 +181,5 @@ production readiness.
 
 - [ ] Document custom stemcell build process for NVIDIA drivers
 - [ ] Create stemcell CI pipeline that tracks driver updates
-- [ ] Test BOSH package approach as alternative
+- [x] ~~Test BOSH package approach~~ - ✅ Implemented and validated
 - [ ] Evaluate nvidia-container-toolkit pre-installation in stemcell

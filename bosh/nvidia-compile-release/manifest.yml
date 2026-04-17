@@ -1,0 +1,33 @@
+---
+# NVIDIA Driver Compilation Deployment
+# Run as errand to compile driver, keep VM alive, download artifacts
+name: nvidia-compile
+
+releases:
+  - name: nvidia-compile
+    version: latest
+
+stemcells:
+  - alias: default
+    os: ubuntu-jammy
+    version: "1.1123"
+
+instance_groups:
+  - name: compile
+    instances: 1
+    azs: [z1]
+    vm_type: default
+    persistent_disk_type: 10GB  # Need space for NVIDIA compilation (~5GB)
+    stemcell: default
+    lifecycle: errand
+    networks:
+      - name: private
+    jobs:
+      - name: compile-nvidia
+        release: nvidia-compile
+
+update:
+  canaries: 1
+  max_in_flight: 1
+  canary_watch_time: 30000-600000
+  update_watch_time: 30000-600000

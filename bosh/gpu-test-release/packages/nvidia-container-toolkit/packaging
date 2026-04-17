@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+# Extract .deb to package directory
+dpkg-deb -x nvidia-container-toolkit/toolkit.deb ${BOSH_INSTALL_TARGET}/
+
+echo "nvidia-container-toolkit package installed to ${BOSH_INSTALL_TARGET}"
