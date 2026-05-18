@@ -1,0 +1,18 @@
+---
+name: gpu-validation-errand-noble
+
+description: |
+  Errand to validate GPU functionality on GPU-enabled stemcells (ubuntu-noble).
+  Driver is pre-installed in the stemcell - no BOSH packages needed.
+  Tests both PyTorch and TensorFlow with comprehensive benchmarks.
+
+  Usage:
+    bosh -d gpu-test-noble run-errand gpu-validation-errand-noble
+
+templates:
+  run: bin/run
+  test-gpu.py: bin/test-gpu.py
+
+packages: []
+
+properties: {}

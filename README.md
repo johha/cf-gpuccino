@@ -8,12 +8,12 @@ A reference/prototype implementation that extends Cloud Foundry to schedule, all
 
 **Phase 1 (Foundation) - In Progress**
 
-✅ **Validated**: NVIDIA driver installation and GPU compute on BOSH-managed VMs
+✅ **Validated**: NVIDIA driver and GPU compute on BOSH-managed VMs
+- Custom Ubuntu Noble stemcell with pre-baked NVIDIA driver (595.58.03)
 - Lifecycle errand validates GPU functionality on-demand (VM created/destroyed per test)
-- Driver 570 installs and loads correctly on Ubuntu Jammy stemcell
 - GPU compute verified via comprehensive benchmarks (PyTorch & TensorFlow)
-- PyTorch: 4.2 TFLOPS FP32, 41 TFLOPS FP16 (Tensor Cores)
-- TensorFlow: 1.8 TFLOPS FP32, 5.6 TFLOPS FP16
+- PyTorch: 4.45 TFLOPS FP32, 40.79 TFLOPS FP16 (Tensor Cores)
+- TensorFlow: 1.25 TFLOPS FP32, 3.08 TFLOPS FP16
 - Cost-effective testing: ~$0.10-0.15 per test run vs $14/day for persistent VM
 - See `bosh/gpu-test-release/` for the working BOSH release
 
@@ -147,13 +147,6 @@ cf-gpuccino/
 │       └── amd-gpu.json               ← CDI spec for AMD/ROCm GPUs
 ├── bosh/
 │   ├── gpu-test-release/              ← ✅ Working BOSH release for GPU validation
-│   ├── manifests/
-│   │   └── gpu-cell.yml               ← BOSH manifest excerpt (reference)
-│   └── jobs/
-│       └── nvidia-toolkit/
-│           ├── spec                   ← BOSH job spec (reference)
-│           └── templates/
-│               └── config.toml.erb    ← nvidia-container-toolkit config
 ├── buildpack/
 │   └── gpu-buildpack/
 │       └── README.md

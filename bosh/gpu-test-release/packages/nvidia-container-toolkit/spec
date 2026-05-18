@@ -1,5 +1,0 @@
----
-name: nvidia-container-toolkit
-
-files:
-- nvidia-container-toolkit/toolkit.deb

@@ -57,14 +57,18 @@ echo ""
 echo "=== Installing Python and ML Frameworks ==="
 export DEBIAN_FRONTEND=noninteractive
 
-echo "Installing Python 3.11 and venv..."
+echo "Installing Python and venv..."
 apt-get update -qq
-apt-get install -y -qq python3.11 python3.11-venv python3-pip
+apt-get install -y -qq python3 python3-venv python3-pip
+
+PYTHON=$(which python3)
+PYTHON_VERSION=$(${PYTHON} -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
+echo "Using ${PYTHON_VERSION}"
 
 # Create virtualenv
 VENV_DIR=/var/vcap/data/tmp/gpu-validation-$$
 mkdir -p /var/vcap/data/tmp
-python3.11 -m venv ${VENV_DIR}
+${PYTHON} -m venv ${VENV_DIR}
 source ${VENV_DIR}/bin/activate
 
 # Install ML frameworks
@@ -78,13 +82,13 @@ echo "Installed packages:"
 ${VENV_DIR}/bin/pip list | grep -E "^(torch|tensorflow|numpy)"
 
 # Set LD_LIBRARY_PATH for TensorFlow CUDA libraries
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cublas/lib:${LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cufft/lib:${LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/curand/lib:${LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cusolver/lib:${LD_LIBRARY_PATH}"
-export LD_LIBRARY_PATH="${VENV_DIR}/lib/python3.11/site-packages/nvidia/cusparse/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/cublas/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/cufft/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/curand/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/cusolver/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VENV_DIR}/lib/${PYTHON_VERSION}/site-packages/nvidia/cusparse/lib:${LD_LIBRARY_PATH}"
 
 # Suppress TensorFlow logs
 export TF_CPP_MIN_LOG_LEVEL=3
@@ -96,7 +100,7 @@ export TF_ENABLE_ONEDNN_OPTS=0
 echo ""
 echo "=== Running GPU Validation Tests ==="
 
-${VENV_DIR}/bin/python /var/vcap/jobs/gpu-validation-errand/bin/test-gpu.py \
+${VENV_DIR}/bin/python /var/vcap/jobs/gpu-validation-errand-noble/bin/test-gpu.py \
     --framework both \
     --matrix-size 4096 \
     --iterations 10 \

@@ -1,2 +1,0 @@
-bosh/driver-artifacts/*.tar.gz filter=lfs diff=lfs merge=lfs -text
-bosh/driver-artifacts/*.deb filter=lfs diff=lfs merge=lfs -text

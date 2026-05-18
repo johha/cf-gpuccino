@@ -1,9 +1,0 @@
-#!/bin/bash
-set -e
-
-# Extract blobs to package directory
-tar -xzf nvidia-driver-570/module.tar.gz -C ${BOSH_INSTALL_TARGET}/
-tar -xzf nvidia-driver-570/tools.tar.gz -C ${BOSH_INSTALL_TARGET}/
-tar -xzf nvidia-driver-570/libs.tar.gz -C ${BOSH_INSTALL_TARGET}/
-
-echo "NVIDIA driver 570 package installed to ${BOSH_INSTALL_TARGET}"

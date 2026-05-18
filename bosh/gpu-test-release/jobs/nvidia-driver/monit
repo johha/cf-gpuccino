@@ -1,2 +1,0 @@
-# nvidia-driver is a kernel module, not a daemon.
-# No process to monitor - driver state is verified via nvidia-smi in post-start.

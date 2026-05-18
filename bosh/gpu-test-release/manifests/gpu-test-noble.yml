@@ -1,0 +1,32 @@
+---
+name: gpu-test-noble
+
+releases:
+  - name: gpu-test
+    version: latest
+
+stemcells:
+  - alias: default
+    os: ubuntu-noble
+    version: "1.365-nvidia"
+
+instance_groups:
+  - name: gpu-validation
+    instances: 1
+    azs: [z1]
+    vm_type: gpu-small
+    stemcell: default
+    networks:
+      - name: private
+    lifecycle: errand
+    jobs:
+      - name: gpu-validation-errand-noble
+        release: gpu-test
+
+update:
+  canaries: 1
+  max_in_flight: 1
+  canary_watch_time: 30000-1200000
+  update_watch_time: 30000-1200000
+
+variables: []

@@ -7,43 +7,20 @@ for a production implementation.
 
 ## Accepted Shortcuts
 
-### 1. Pre-Compiled Driver Packages (vs Custom Stemcell)
+### 1. GPU Validation Runs as Errand
 
-**Current state**: NVIDIA driver installed from pre-compiled BOSH packages (~1 second).
-
-**Production approach**: Custom stemcell with pre-baked driver (zero install time).
-
-**Why this is acceptable**:
-- Pre-compiled packages reduce driver install from 5-7 min to ~1 second
-- Validated approach on Ubuntu Jammy stemcell kernel (5.15.0-173-generic)
-- For GPU validation errands and testing, this is sufficient
-- Custom stemcells recommended for production Diego GPU cells
-
-**Effort to fix**: 1-2 weeks (learn stemcell-builder, add NVIDIA stage, set up CI).
-
-**See also**: [Stemcell Options](stemcell-options.md)
-
-**What we've built**:
-- `nvidia-compile-release` - compiles driver for specific stemcell kernel
-- `gpu-test-release` - uses pre-compiled packages via BOSH blobs
-- Driver artifacts tracked with git-lfs
-
----
-
-### 2. GPU Validation Tests Run as Errand
-
-**Current state**: The `gpu-validation-errand` runs on-demand, creates VM, tests GPU, 
+**Current state**: The `gpu-validation-errand-noble` runs on-demand, creates VM, tests GPU,
 then destroys VM automatically.
 
 **Production approach**: For Diego GPU cells, tests would run during post-start and
 report to BOSH health monitoring.
 
 **Why this is acceptable**: Errand-based validation is perfect for development and
-cost-effective for testing. Validates the pre-compiled driver approach.
+cost-effective for testing. Validates that the custom stemcell GPU driver works correctly.
 
 ---
 
-### 3. Single GPU Instance Type Tested
+### 2. Single GPU Instance Type Tested
 
 **Current state**: Only tested on g4dn.xlarge (Tesla T4).
 
@@ -55,7 +32,7 @@ Driver installation process is the same across GPU types.
 
 ---
 
-### 4. No Container GPU Access Yet
+### 3. No Container GPU Access Yet
 
 **Current state**: GPU works at VM level, but not exposed to containers.
 
@@ -74,10 +51,10 @@ These items are **not shortcuts** - they've been fully validated:
 | Item | Status | Evidence |
 |------|--------|----------|
 | GPU hardware detection | ✅ Validated | `lspci` shows Tesla T4 |
-| NVIDIA driver installation | ✅ Validated | Driver 570 installs cleanly |
-| Kernel module loading | ✅ Validated | `nvidia-smi` works |
-| CUDA compute | ✅ Validated | PyTorch GPU tests pass (4.4 TFLOPS) |
-| Stemcell compatibility | ✅ Validated | Ubuntu Jammy kernel 5.15.x works |
+| NVIDIA driver installation | ✅ Validated | Pre-baked in custom stemcell (ubuntu-noble 1.365-nvidia) |
+| Kernel module loading | ✅ Validated | `nvidia-smi` works on boot |
+| CUDA compute | ✅ Validated | PyTorch GPU tests pass (4.45 TFLOPS FP32, 40.79 TFLOPS FP16) |
+| Stemcell compatibility | ✅ Validated | Ubuntu Noble with driver 595.58.03 |
 | BOSH job lifecycle | ✅ Validated | pre-start, post-start, monit all work |
 
 ---
@@ -86,7 +63,6 @@ These items are **not shortcuts** - they've been fully validated:
 
 When moving toward production, address these in order:
 
-1. ~~**Compiled BOSH release**~~ - ✅ Complete (nvidia-compile-release + pre-compiled packages)
-2. **Custom stemcell** - Bake driver into stemcell image (higher effort, optional)
-3. **Multi-GPU testing** - Validate on A10G, A100 instances
-4. **Container integration** - nvidia-container-toolkit + Garden changes
+1. ~~**Custom stemcell**~~ - ✅ Complete (ubuntu-noble 1.365-nvidia with pre-baked NVIDIA driver)
+2. **Multi-GPU testing** - Validate on A10G, A100 instances
+3. **Container integration** - nvidia-container-toolkit + Garden changes

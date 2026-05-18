@@ -1,7 +1,0 @@
----
-name: nvidia-driver-570
-
-files:
-- nvidia-driver-570/module.tar.gz
-- nvidia-driver-570/tools.tar.gz
-- nvidia-driver-570/libs.tar.gz
