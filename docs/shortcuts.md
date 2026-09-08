@@ -51,7 +51,7 @@ These items are **not shortcuts** - they've been fully validated:
 | Item | Status | Evidence |
 |------|--------|----------|
 | GPU hardware detection | ✅ Validated | `lspci` shows Tesla T4 |
-| NVIDIA driver installation | ✅ Validated | Pre-baked in custom stemcell (ubuntu-noble 1.365-nvidia) |
+| NVIDIA driver installation | ✅ Validated | Pre-baked in custom stemcell (ubuntu-noble 1.562-nvidia) |
 | Kernel module loading | ✅ Validated | `nvidia-smi` works on boot |
 | CUDA compute | ✅ Validated | PyTorch GPU tests pass (4.45 TFLOPS FP32, 40.79 TFLOPS FP16) |
 | Stemcell compatibility | ✅ Validated | Ubuntu Noble with driver 595.58.03 |
@@ -63,6 +63,6 @@ These items are **not shortcuts** - they've been fully validated:
 
 When moving toward production, address these in order:
 
-1. ~~**Custom stemcell**~~ - ✅ Complete (ubuntu-noble 1.365-nvidia with pre-baked NVIDIA driver)
+1. ~~**Custom stemcell**~~ - ✅ Complete (ubuntu-noble 1.562-nvidia with pre-baked NVIDIA driver)
 2. **Multi-GPU testing** - Validate on A10G, A100 instances
 3. **Container integration** - nvidia-container-toolkit + Garden changes

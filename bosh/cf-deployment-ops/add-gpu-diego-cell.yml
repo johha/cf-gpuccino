@@ -1,0 +1,237 @@
+---
+# add-gpu-diego-cell.yml
+#
+# Adds a dedicated GPU-enabled Diego cell to a cf-deployment manifest.
+#
+# What this does:
+#   1. Registers a second stemcell alias `gpu` pinned to the custom
+#      GPU-driver stemcell (ubuntu-noble 1.562-nvidia). The base
+#      deployment keeps using the stock `default` stemcell for every other
+#      instance group.
+#   2. Adds a `gpu-diego-cell` instance group that mirrors the standard
+#      `diego-cell` jobs, runs on a GPU VM type (`gpu-small` = g4dn.xlarge,
+#      Tesla T4), and tags its rep with `placement_tags: [gpu]` so only
+#      workloads that request the `gpu` placement tag / isolation segment
+#      land on it. Normal apps never schedule onto the (expensive) GPU VM.
+#
+# Prerequisites:
+#   - The GPU stemcell `ubuntu-noble/1.562-nvidia` is uploaded to
+#     the director (`bosh stemcells`).
+#   - The cloud-config defines the `gpu-small` vm_type (see
+#     bbl-state/cloud-config/gpu-ops.yml in the han environment) and the
+#     `100GB_ephemeral_disk` vm_extension used by the stock diego-cell.
+#
+# Usage (from the han environment dir):
+#   bosh -d cf deploy cf_manifest_noble_v1_460.yml \
+#     -o /path/to/cf-gpuccino/bosh/cf-deployment-ops/add-gpu-diego-cell.yml
+#
+# To actually place apps on this cell you also need an isolation segment
+# named to match the placement tag and org/space assignment. That is a
+# follow-up step (see add-gpu-isolation-segment.yml notes at the bottom).
+
+# ---------------------------------------------------------------------------
+# 1. Register the GPU stemcell as a separate alias.
+# ---------------------------------------------------------------------------
+- type: replace
+  path: /stemcells/-
+  value:
+    alias: gpu
+    os: ubuntu-noble
+    version: "1.562-nvidia"
+
+# ---------------------------------------------------------------------------
+# 2. Add the GPU Diego cell instance group.
+#    Jobs mirror the stock diego-cell group from the han manifest. The only
+#    functional differences vs. a normal cell:
+#      - stemcell: gpu          (GPU-driver stemcell)
+#      - vm_type: gpu-small     (g4dn.xlarge / Tesla T4)
+#      - rep placement_tags: [gpu]
+# ---------------------------------------------------------------------------
+- type: replace
+  path: /instance_groups/-
+  value:
+    name: gpu-diego-cell
+    azs:
+    - z1
+    instances: 1
+    stemcell: gpu
+    vm_type: gpu-small
+    vm_extensions:
+    - 100GB_ephemeral_disk
+    networks:
+    - name: default
+    jobs:
+    - name: bosh-dns-adapter
+      release: cf-networking
+      properties:
+        internal_domains:
+        - apps.internal.
+        dnshttps:
+          client:
+            tls: ((cf_app_sd_client_tls))
+          server:
+            ca: ((cf_app_sd_client_tls.ca))
+    - name: cflinuxfs4-rootfs-setup
+      release: cflinuxfs4
+      properties:
+        cflinuxfs4-rootfs:
+          trusted_certs:
+          - ((diego_instance_identity_ca.ca))
+          - ((credhub_tls.ca))
+          - ((uaa_ssl.ca))
+    - name: garden
+      release: garden-runc
+      # Scope this cell's networking links to itself. Without these `nil`
+      # provides, adding a second cell group makes garden/silk-cni/
+      # vxlan-policy-agent double-provide the iptables, cni_config, and vpa
+      # links, and the original diego-cell can no longer resolve them
+      # ("Multiple link providers found"). See cf-deployment's
+      # add-persistent-isolation-segment-diego-cell.yml for the same pattern.
+      provides:
+        iptables: nil
+      properties:
+        garden:
+          cleanup_process_dirs_on_wait: true
+          containerd_mode: true
+          debug_listen_address: 127.0.0.1:17019
+          default_container_grace_time: 0
+          deny_networks:
+          - 0.0.0.0/0
+          network_plugin: /var/vcap/packages/runc-cni/bin/garden-external-networker
+          network_plugin_extra_args:
+          - --configFile=/var/vcap/jobs/garden-cni/config/adapter.json
+    - name: rep
+      release: diego
+      properties:
+        bpm:
+          enabled: true
+        containers:
+          proxy:
+            enable_unproxied_port_mappings: false
+            enabled: true
+            require_and_verify_client_certificates: true
+            trusted_ca_certificates:
+            - ((gorouter_backend_tls.ca))
+            - ((ssh_proxy_backends_tls.ca))
+            - ((tcp_router_backend_tls.ca))
+            verify_subject_alt_name:
+            - gorouter.service.cf.internal
+            - ssh-proxy.service.cf.internal
+            - tcp-router.service.cf.internal
+          trusted_ca_certificates:
+          - ((diego_instance_identity_ca.ca))
+          - ((credhub_tls.ca))
+          - ((uaa_ssl.ca))
+        diego:
+          executor:
+            instance_identity_ca_cert: ((diego_instance_identity_ca.certificate))
+            instance_identity_key: ((diego_instance_identity_ca.private_key))
+          rep:
+            preloaded_rootfses:
+            - cflinuxfs4:/var/vcap/packages/cflinuxfs4/rootfs.tar
+            placement_tags:
+            - gpu
+        loggregator:
+          app_metric_exclusion_filter:
+          - absolute_entitlement
+          - absolute_usage
+          ca_cert: ((loggregator_tls_agent.ca))
+          cert: ((loggregator_tls_agent.certificate))
+          key: ((loggregator_tls_agent.private_key))
+          use_v2_api: true
+        tls:
+          ca_cert: ((diego_rep_agent_v2.ca))
+          cert: ((diego_rep_agent_v2.certificate))
+          key: ((diego_rep_agent_v2.private_key))
+    - name: cfdot
+      release: diego
+      properties:
+        tls:
+          ca_certificate: ((diego_rep_client.ca))
+          certificate: ((diego_rep_client.certificate))
+          private_key: ((diego_rep_client.private_key))
+    - name: route_emitter
+      release: diego
+      properties:
+        bpm:
+          enabled: true
+        diego:
+          route_emitter:
+            bbs:
+              ca_cert: ((diego_bbs_client.ca))
+              client_cert: ((diego_bbs_client.certificate))
+              client_key: ((diego_bbs_client.private_key))
+            local_mode: true
+            nats:
+              tls:
+                client_cert: ((nats_client_cert.certificate))
+                client_key: ((nats_client_cert.private_key))
+                enabled: true
+        internal_routes:
+          enabled: true
+        loggregator:
+          app_metric_exclusion_filter:
+          - absolute_entitlement
+          - absolute_usage
+          ca_cert: ((loggregator_tls_agent.ca))
+          cert: ((loggregator_tls_agent.certificate))
+          key: ((loggregator_tls_agent.private_key))
+          use_v2_api: true
+        tcp:
+          enable_tls: true
+          enabled: true
+        uaa:
+          ca_cert: ((uaa_ssl.ca))
+          client_secret: ((uaa_clients_tcp_emitter_secret))
+    - name: garden-cni
+      release: cf-networking
+      properties:
+        cni_config_dir: /var/vcap/jobs/silk-cni/config/cni
+        cni_plugin_dir: /var/vcap/packages/silk-cni/bin
+    - name: netmon
+      release: silk
+    - name: vxlan-policy-agent
+      release: silk
+      provides:
+        vpa: nil
+      properties:
+        asg_poll_interval_seconds: 1
+        ca_cert: ((network_policy_client.ca))
+        client_cert: ((network_policy_client.certificate))
+        client_key: ((network_policy_client.private_key))
+        loggregator:
+          app_metric_exclusion_filter:
+          - absolute_entitlement
+          - absolute_usage
+          ca_cert: ((loggregator_tls_agent.ca))
+          cert: ((loggregator_tls_agent.certificate))
+          key: ((loggregator_tls_agent.private_key))
+          use_v2_api: true
+    - name: silk-daemon
+      release: silk
+      properties:
+        ca_cert: ((silk_daemon.ca))
+        client_cert: ((silk_daemon.certificate))
+        client_key: ((silk_daemon.private_key))
+    - name: silk-cni
+      release: silk
+      provides:
+        cni_config: nil
+      properties:
+        dns_servers:
+        - 169.254.0.53
+    - name: silk-datastore-syncer
+      release: silk
+    - name: loggr-udp-forwarder
+      release: loggregator-agent
+      properties:
+        loggregator:
+          tls:
+            ca: ((loggregator_tls_agent.ca))
+            cert: ((loggregator_tls_agent.certificate))
+            key: ((loggregator_tls_agent.private_key))
+        metrics:
+          ca_cert: ((loggr_udp_forwarder_tls.ca))
+          cert: ((loggr_udp_forwarder_tls.certificate))
+          key: ((loggr_udp_forwarder_tls.private_key))
+          server_name: loggr_udp_forwarder_metrics

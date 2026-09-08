@@ -14,11 +14,15 @@ The groundwork that every other phase depends on.
   VMs using Ubuntu Noble stemcell. Proves driver + kernel compatibility.
   See `bosh/gpu-test-release/`.
 - [x] **Custom GPU stemcell** – Ubuntu Noble stemcell with pre-baked NVIDIA driver (595.58.03).
-  Zero runtime driver installation. See https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidia-v1.365
+  Zero runtime driver installation. See https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidia-595-cuda12.9-v1.460
 - [x] **GPU compute validated** – PyTorch and TensorFlow benchmarks on Tesla T4.
   PyTorch: 4.45 TFLOPS FP32, 40.79 TFLOPS FP16. TensorFlow: 1.25 TFLOPS FP32, 3.08 TFLOPS FP16.
-- [ ] **`nvidia-toolkit` BOSH job** – install and configure
+- [~] **`nvidia-toolkit` BOSH job** – install and configure
   `nvidia-container-toolkit` on GPU cells; enable CDI mode by default.
+  Prototype lives in `gpu-test-release/jobs/container-gpu-errand-noble/` as a
+  one-shot errand that installs the toolkit, generates a CDI spec, and runs
+  `nvidia-smi` + a CUDA workload inside a container. Promotion to a
+  long-running cell job is the follow-up.
 - [ ] **`nvidia-persistenced` BOSH job** – keep driver state alive between
   container starts (required for MIG / multi-GPU setups).
 - [ ] **`nvidia-fabricmanager` BOSH job** – multi-GPU NVLink fabric management

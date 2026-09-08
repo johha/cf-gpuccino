@@ -1,31 +1,48 @@
 # GPU Test Release
 
-Validates GPU functionality using a GPU-enabled BOSH stemcell. Lifecycle errand creates a GPU VM on-demand, verifies the pre-baked driver, and runs PyTorch/TensorFlow validation tests.
+Validates GPU functionality on BOSH-managed VMs using a GPU-enabled stemcell.
+Two lifecycle errands cover progressively deeper layers of the stack.
 
-## What It Does
+## Errands
 
-- Verifies NVIDIA driver pre-installed in stemcell
-- Installs Python and ML frameworks (runtime)
-- Runs GPU validation tests (PyTorch, TensorFlow)
-- VM destroyed automatically after completion
+### 1. `gpu-validation-errand-noble` — Host-level GPU
 
-## Usage
+Verifies the pre-baked driver on the stemcell and runs PyTorch/TensorFlow
+benchmarks on the host. Confirms the driver and CUDA runtime work end-to-end.
 
 ```bash
-# Deploy
 bosh -d gpu-test deploy bosh/gpu-test-release/manifests/gpu-test-noble.yml
-
-# Run validation errand
 bosh -d gpu-test run-errand gpu-validation-errand-noble
 ```
 
 Expected output:
 ```
-✅ NVIDIA driver already installed, skipping
 ✅ Tesla T4, 595.58.03, 15360 MiB
 ✅ PyTorch tests PASSED
 ✅ TensorFlow tests PASSED
 ✅ GPU VALIDATION PASSED
+```
+
+### 2. `container-gpu-errand-noble` — Container-level GPU (CDI)
+
+Installs Docker and `nvidia-container-toolkit`, generates a CDI spec, and
+runs `nvidia-smi` plus a small CUDA workload **inside a container** via
+`--device=nvidia.com/gpu=all`. This is the prerequisite for Garden/Diego
+integration.
+
+```bash
+bosh -d container-gpu-test deploy bosh/gpu-test-release/manifests/container-gpu-test-noble.yml
+bosh -d container-gpu-test run-errand container-gpu-errand-noble
+```
+
+Expected output:
+```
+✅ Host driver: Tesla T4, 595.58.03
+✅ nvidia-container-toolkit installed
+✅ CDI spec generated at /etc/cdi/nvidia.yaml
+✅ Container nvidia-smi succeeded
+✅ Container CUDA workload OK
+✅ CONTAINER GPU VALIDATION PASSED
 ```
 
 ## Stemcell
@@ -36,10 +53,10 @@ Uses a custom Ubuntu Noble stemcell with NVIDIA driver pre-baked:
 stemcells:
   - alias: default
     os: ubuntu-noble
-    version: "1.365-nvidia"
+    version: "1.562-nvidia"
 ```
 
-Stemcell source: https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidia-v1.365
+Stemcell source: https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidia-595-cuda12.9-v1.460
 
 **Critical:** The stemcell already contains the NVIDIA driver. No BOSH packages or runtime compilation needed.
 
@@ -47,9 +64,13 @@ Stemcell source: https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidi
 
 ```
 jobs/
-└── gpu-validation-errand-noble/
-    ├── run            - Verifies driver, installs ML frameworks, runs tests
-    └── test-gpu.py    - PyTorch and TensorFlow validation tests
+├── gpu-validation-errand-noble/
+│   ├── run            - Verifies driver, installs ML frameworks, runs tests
+│   └── test-gpu.py    - PyTorch and TensorFlow validation tests
+└── container-gpu-errand-noble/
+    └── run            - Installs Docker + nvidia-container-toolkit, generates
+                         CDI spec, runs nvidia-smi and a CUDA workload in a
+                         container.
 ```
 
 ## Validation Tests

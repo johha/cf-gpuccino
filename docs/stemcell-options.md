@@ -37,13 +37,13 @@ Bake the NVIDIA driver directly into the stemcell image.
 **Implementation:**
 Custom Ubuntu Noble stemcell with NVIDIA driver pre-baked.
 
-Source: https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidia-v1.365
+Source: https://github.com/johha/bosh-linux-stemcell-builder/tree/nvidia-595-cuda12.9-v1.460
 
 ```yaml
 stemcells:
   - alias: default
     os: ubuntu-noble
-    version: "1.365-nvidia"
+    version: "1.562-nvidia"
 ```
 
 ---

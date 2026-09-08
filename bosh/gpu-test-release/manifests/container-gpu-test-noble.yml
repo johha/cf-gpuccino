@@ -1,5 +1,5 @@
 ---
-name: gpu-test-noble
+name: container-gpu-test
 
 releases:
   - name: gpu-test
@@ -11,7 +11,7 @@ stemcells:
     version: "1.562-nvidia"
 
 instance_groups:
-  - name: gpu-validation
+  - name: container-gpu-validation
     instances: 1
     azs: [z1]
     vm_type: gpu-small
@@ -20,7 +20,7 @@ instance_groups:
       - name: private
     lifecycle: errand
     jobs:
-      - name: gpu-validation-errand-noble
+      - name: container-gpu-errand-noble
         release: gpu-test
 
 update:

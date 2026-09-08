@@ -18,6 +18,10 @@ A reference/prototype implementation that extends Cloud Foundry to schedule, all
 - See `bosh/gpu-test-release/` for the working BOSH release
 
 🚧 **Next**: Container GPU access via nvidia-container-toolkit
+- Errand `container-gpu-errand-noble` installs the toolkit, generates a CDI
+  spec, and runs `nvidia-smi` + a CUDA workload inside a container on a
+  BOSH-managed VM. Prerequisite for Garden/Diego integration.
+- See `bosh/gpu-test-release/manifests/container-gpu-test-noble.yml`.
 
 See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) for PoC assumptions.
 

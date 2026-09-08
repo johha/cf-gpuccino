@@ -1,0 +1,222 @@
+#!/bin/bash
+set -e
+
+echo "=== Container GPU Errand: $(date) ==="
+
+LOG_DIR=/var/vcap/sys/log/container-gpu-errand
+mkdir -p "${LOG_DIR}"
+
+# ============================================================================
+# Step 1: Verify host driver (sanity check)
+# ============================================================================
+echo ""
+echo "=== Step 1: Verify host NVIDIA driver ==="
+
+if ! command -v nvidia-smi &> /dev/null; then
+    echo "FAIL: nvidia-smi not found on host. Stemcell does not have driver pre-baked."
+    exit 1
+fi
+
+if ! nvidia-smi &> /dev/null; then
+    echo "FAIL: nvidia-smi present but cannot talk to driver."
+    exit 1
+fi
+
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+
+# ============================================================================
+# Step 2: Install Docker
+# ============================================================================
+echo ""
+echo "=== Step 2: Install Docker ==="
+
+export DEBIAN_FRONTEND=noninteractive
+
+if command -v docker &> /dev/null; then
+    echo "Docker already installed: $(docker --version)"
+else
+    echo "Installing Docker from Ubuntu repos..."
+    apt-get update -qq
+    apt-get install -y -qq docker.io
+    systemctl enable --now docker
+fi
+
+docker info > "${LOG_DIR}/docker-info.txt" 2>&1
+echo "Docker version: $(docker --version)"
+
+# ============================================================================
+# Step 3: Install nvidia-container-toolkit from NVIDIA's apt repo
+# ============================================================================
+echo ""
+echo "=== Step 3: Install nvidia-container-toolkit ==="
+
+if command -v nvidia-ctk &> /dev/null; then
+    echo "nvidia-container-toolkit already installed: $(nvidia-ctk --version | head -1)"
+else
+    echo "Adding NVIDIA container-toolkit apt repo..."
+
+    # Pull GPG key and source list per NVIDIA's documented install procedure
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+        | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+    curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+        | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+        > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+    apt-get update -qq
+    apt-get install -y -qq nvidia-container-toolkit
+
+    echo "Installed: $(nvidia-ctk --version | head -1)"
+fi
+
+# ============================================================================
+# Step 4: Generate CDI spec
+# ============================================================================
+echo ""
+echo "=== Step 4: Generate CDI spec ==="
+
+CDI_SPEC=/etc/cdi/nvidia.yaml
+mkdir -p /etc/cdi
+
+nvidia-ctk cdi generate --output="${CDI_SPEC}"
+
+if [ ! -s "${CDI_SPEC}" ]; then
+    echo "FAIL: CDI spec was not generated at ${CDI_SPEC}"
+    exit 1
+fi
+
+echo "CDI spec generated at ${CDI_SPEC}"
+echo "--- CDI spec preview (first 40 lines) ---"
+head -n 40 "${CDI_SPEC}"
+echo "--- (full spec saved to ${LOG_DIR}/cdi-spec.yaml) ---"
+cp "${CDI_SPEC}" "${LOG_DIR}/cdi-spec.yaml"
+
+echo ""
+echo "Discovered CDI devices:"
+nvidia-ctk cdi list
+
+# ============================================================================
+# Step 5: Configure Docker to use nvidia-container-toolkit
+# ============================================================================
+echo ""
+echo "=== Step 5: Configure Docker runtime ==="
+
+# Docker on Ubuntu Noble uses CDI when --device nvidia.com/gpu=... is passed
+# AND containerd/docker is configured for it. nvidia-ctk handles the runtime
+# config; we then restart docker.
+nvidia-ctk runtime configure --runtime=docker --cdi.enabled
+systemctl restart docker
+
+# Wait for docker to come back
+for i in {1..15}; do
+    if docker info &> /dev/null; then
+        break
+    fi
+    sleep 1
+done
+
+if ! docker info &> /dev/null; then
+    echo "FAIL: Docker did not come back after restart"
+    exit 1
+fi
+
+# ============================================================================
+# Step 6: Run nvidia-smi inside a container via CDI
+# ============================================================================
+echo ""
+echo "=== Step 6: Run nvidia-smi inside a container ==="
+
+CUDA_IMAGE="nvidia/cuda:12.4.1-base-ubuntu22.04"
+echo "Pulling ${CUDA_IMAGE}..."
+docker pull "${CUDA_IMAGE}"
+
+echo ""
+echo "--- Container nvidia-smi output ---"
+docker run --rm --device=nvidia.com/gpu=all \
+    "${CUDA_IMAGE}" \
+    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv \
+    | tee "${LOG_DIR}/container-nvidia-smi.txt"
+
+# ============================================================================
+# Step 7: Run a small CUDA workload inside a container
+# ============================================================================
+echo ""
+echo "=== Step 7: Run a CUDA workload inside a container ==="
+
+# Run deviceQuery-equivalent: a minimal CUDA program that allocates memory
+# and reports compute capability. Uses a CUDA-enabled image so we don't have
+# to compile anything on the host.
+CUDA_DEVEL_IMAGE="nvidia/cuda:12.4.1-devel-ubuntu22.04"
+echo "Pulling ${CUDA_DEVEL_IMAGE} (for compiler)..."
+docker pull "${CUDA_DEVEL_IMAGE}"
+
+WORKLOAD=$(cat <<'EOF'
+#include <cstdio>
+#include <cuda_runtime.h>
+
+int main() {
+    int dev_count = 0;
+    cudaGetDeviceCount(&dev_count);
+    printf("CUDA device count: %d\n", dev_count);
+
+    for (int i = 0; i < dev_count; ++i) {
+        cudaDeviceProp p;
+        cudaGetDeviceProperties(&p, i);
+        printf("  [%d] %s, compute %d.%d, %.0f MiB\n",
+               i, p.name, p.major, p.minor,
+               p.totalGlobalMem / (1024.0 * 1024.0));
+    }
+
+    // Allocate, set, copy back -- proves we can actually use the device.
+    const int N = 1 << 20;
+    float *d = nullptr;
+    cudaMalloc(&d, N * sizeof(float));
+    cudaMemset(d, 0, N * sizeof(float));
+    cudaFree(d);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA error: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
+    printf("CUDA workload OK\n");
+    return 0;
+}
+EOF
+)
+
+WORKLOAD_DIR=/var/vcap/data/tmp/container-gpu-workload
+mkdir -p "${WORKLOAD_DIR}"
+echo "${WORKLOAD}" > "${WORKLOAD_DIR}/workload.cu"
+
+echo ""
+echo "--- Compiling and running CUDA workload in container ---"
+docker run --rm --device=nvidia.com/gpu=all \
+    -v "${WORKLOAD_DIR}":/work \
+    -w /work \
+    "${CUDA_DEVEL_IMAGE}" \
+    bash -c "nvcc -o workload workload.cu && ./workload" \
+    | tee "${LOG_DIR}/container-cuda-workload.txt"
+
+WORKLOAD_RESULT=${PIPESTATUS[0]}
+
+# Cleanup workload dir
+rm -rf "${WORKLOAD_DIR}"
+
+# ============================================================================
+# Result
+# ============================================================================
+echo ""
+if [ ${WORKLOAD_RESULT} -eq 0 ]; then
+    echo "=== CONTAINER GPU VALIDATION PASSED ==="
+    echo ""
+    echo "GPU is accessible from inside a container on this BOSH-managed VM."
+    echo "CDI spec: ${LOG_DIR}/cdi-spec.yaml"
+    echo "Container nvidia-smi: ${LOG_DIR}/container-nvidia-smi.txt"
+    echo "Container CUDA workload: ${LOG_DIR}/container-cuda-workload.txt"
+    exit 0
+else
+    echo "=== CONTAINER GPU VALIDATION FAILED ==="
+    echo "Check logs in ${LOG_DIR}/"
+    exit 1
+fi

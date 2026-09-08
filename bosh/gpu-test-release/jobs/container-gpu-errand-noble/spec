@@ -1,0 +1,21 @@
+---
+name: container-gpu-errand-noble
+
+description: |
+  Errand that validates GPU access from inside a container on a BOSH-managed VM.
+  Installs Docker and nvidia-container-toolkit, configures CDI mode, generates
+  a CDI spec, and runs nvidia-smi plus a small CUDA workload in a container.
+
+  Prerequisite: GPU-enabled stemcell (ubuntu-noble 1.365-nvidia) with the
+  NVIDIA driver pre-baked. This errand does not install the driver itself.
+
+  Usage:
+    bosh -d container-gpu-test deploy bosh/gpu-test-release/manifests/container-gpu-test-noble.yml
+    bosh -d container-gpu-test run-errand container-gpu-errand-noble
+
+templates:
+  run: bin/run
+
+packages: []
+
+properties: {}
