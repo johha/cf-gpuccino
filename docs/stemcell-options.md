@@ -2,6 +2,10 @@
 
 This document describes options for deploying NVIDIA drivers on BOSH-managed GPU VMs.
 
+> **History:** the POC first shipped the pre-compiled BOSH package approach
+> (Option 2, commit `43fd8ab`), then switched to the custom stemcell
+> (Option 1, commit `75f2aff`), which is what's used today.
+
 ## The Problem
 
 Installing NVIDIA drivers at deploy time (via apt) takes **5-7 minutes** per VM because:

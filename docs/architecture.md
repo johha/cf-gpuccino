@@ -2,34 +2,44 @@
 
 ## Overview
 
-cf-gpuccino extends the Cloud Foundry container runtime stack to schedule, allocate, and expose GPU devices to application containers. It follows the CDI (Container Device Interface) standard for device injection, keeping the solution portable across NVIDIA and AMD GPUs.
+cf-gpuccino extends the Cloud Foundry container runtime stack to schedule, allocate, and expose GPU devices to application containers. It follows the CDI (Container Device Interface) standard for device injection, keeping the device-injection path portable across NVIDIA and AMD GPUs.
+
+> **Resource model note:** the POC requests a GPU with a boolean **app feature flag**
+> (`gpu_enabled`, on/off), implemented on the upstream `cloud_controller_ng` `gpu-flag`
+> branch. A richer model (an explicit count like `gpu: N`, or a `gpu_type`) is a
+> deliberately-open RFC question, not part of the POC. This document describes the
+> feature-flag path as actually built.
 
 ---
 
 ## End-to-End Flow
 
-### Step 1 – Developer pushes with GPU request
+### Step 1 – Developer pushes with GPU enabled
 
 ```bash
 cf push myapp -f manifest.yml
 # manifest.yml:
-#   resources:
-#     gpu: 1
-#     gpu_type: nvidia
+#   applications:
+#   - name: myapp
+#     gpu: true
 ```
 
-The CF CLI sends `PATCH /v3/processes/:guid` with body `{"gpu": 1, "gpu_type": "nvidia"}` to CAPI.
+The CF CLI enables the GPU app feature via CAPI's app-features API
+(`PATCH /v3/apps/:guid/features/gpu` with body `{"enabled": true}`).
 
 ### Step 2 – CAPI persists the GPU request
 
-CAPI validates the request (`GPUResources.Validate()`), stores it in the CC database, and converts it into a `GPURequest` protobuf message that is embedded in the `DesiredLRP` sent to BBS.
+CAPI records the flag on the app (the `gpu_enabled` column) and carries it into the
+Diego app recipe, which embeds a GPU request in the `DesiredLRP` sent to BBS. The GPU
+vendor is not part of the request: it is a property of the foundation's GPU cells, not
+something the developer names.
 
 ### Step 3 – Diego Auctioneer selects a GPU cell
 
-The Auctioneer fetches cell state from every Diego Rep.  GPU cells include a `GPUCapacity` field (`TotalGPUs`, `FreeGPUs`, `GPUType`) in their state response.  The Auctioneer uses `BidForGPU(available, requested, requestedType)` to filter cells:
+The Auctioneer fetches cell state from every Diego Rep.  GPU cells include a `GPUCapacity` field (`TotalGPUs`, `FreeGPUs`, `GPUType`) in their state response.  The Auctioneer gates placement so a GPU-requesting LRP can only win a cell that has GPU capacity:
 
 - Cell must have `FreeGPUs >= 1`.
-- Cell's `GPUType` must be `"nvidia"` (or the request's `gpu_type` is empty).
+- Non-GPU LRPs are unaffected and place as before.
 
 ### Step 4 – Diego Executor allocates the GPU
 
@@ -48,11 +58,11 @@ CDIDevices: []garden.CDIDevice{{Name: "nvidia.com/gpu=0"}}
 Env: []string{"CUDA_VISIBLE_DEVICES=0"}
 ```
 
-garden-runc passes the CDI device name to runc via the OCI bundle's `linux.cdiDevices` field.
+garden-runc receives the CDI device name and, in this POC, resolves and applies the CDI edits at the guardian layer using the upstream `tags.cncf.io/container-device-interface` library (rather than delegating to runc's native CDI support).
 
-### Step 6 – runc resolves the CDI name
+### Step 6 – CDI name is resolved to device edits
 
-runc reads the CDI registry (backed by `/var/vcap/data/cdi/specs/nvidia-gpu.json`) and injects into the container:
+The CDI library reads the CDI registry (backed by `/var/vcap/data/cdi/specs/nvidia-gpu.json`) and injects into the container:
 
 - Device node `/dev/nvidia0` (char, 195:0)
 - Device node `/dev/nvidiactl` (char, 195:255)
@@ -85,12 +95,12 @@ sequenceDiagram
     participant Auction as Auctioneer
     participant Rep as Diego Rep (GPU cell)
     participant Exec as Diego Executor
-    participant Garden as garden-runc
+    participant Garden as garden-runc / guardian
     participant Runc as runc
 
-    Dev->>CLI: cf push myapp (gpu: 1)
-    CLI->>CAPI: PATCH /v3/processes/:guid {gpu:1}
-    CAPI->>BBS: DesiredLRP{GPURequest{limit:1,type:"nvidia"}}
+    Dev->>CLI: cf push myapp (gpu: true)
+    CLI->>CAPI: PATCH /v3/apps/:guid/features/gpu {enabled:true}
+    CAPI->>BBS: DesiredLRP{GPURequest{limit:1}}
     BBS->>Auction: schedule LRP
     Auction->>Rep: GET /state
     Rep-->>Auction: CellState{GPUCapacity{free:2,type:"nvidia"}}
@@ -98,8 +108,8 @@ sequenceDiagram
     Rep->>Exec: RunContainer(GPURequest)
     Exec->>Exec: GPUManager.Allocate(handle, 1) → [0]
     Exec->>Garden: ContainerSpec{CDIDevices:[nvidia.com/gpu=0]}
-    Garden->>Runc: OCI bundle + cdiDevices
-    Runc->>Runc: CDI registry → inject /dev/nvidia0 + libs
+    Garden->>Garden: CDI registry → inject /dev/nvidia0 + libs into OCI bundle
+    Garden->>Runc: OCI bundle (CDI edits applied)
     Runc-->>Garden: container started
     Garden-->>Exec: container handle
     Exec-->>Rep: container running
@@ -111,19 +121,21 @@ sequenceDiagram
 
 ### BBS ↔ CAPI
 
-The `GPURequest` protobuf message is embedded in `DesiredLRPRunInfo`. CAPI serialises the CF v3 `gpu` / `gpu_type` fields into this message when constructing the LRP.
+CAPI carries the app's `gpu_enabled` flag into the Diego app recipe, which embeds a
+`GPURequest` in the `DesiredLRP`. The request is a simple "needs a GPU" marker; the
+vendor/type is resolved by which GPU cells exist in the foundation, not by the request.
 
 ### Rep ↔ Auctioneer
 
-The Diego Rep's `/state` handler is extended to include `GPUCapacity` in the `CellState` JSON. The Auctioneer's scoring function calls `BidForGPU` to gate GPU cell selection.
+The Diego Rep's `/state` handler is extended to include `GPUCapacity` in the `CellState` JSON. The Auctioneer's scoring gates GPU cell selection so a GPU-requesting LRP only wins a cell with free GPU capacity.
 
 ### Executor ↔ GPUManager
 
 The Executor holds a single `*GPUManager` per cell. All container creation and deletion calls synchronise through the manager's mutex.
 
-### garden-runc ↔ runc (CDI)
+### garden-runc / guardian ↔ CDI
 
-garden-runc passes `CDIDevices` names through to the OCI runtime config. runc ≥ 1.1.0 has built-in CDI support; older versions require the nvidia-container-runtime wrapper.
+In this POC, guardian resolves the `CDIDevices` names and applies the CDI edits (device nodes, mounts, env) to the OCI bundle itself, via the `tags.cncf.io/container-device-interface` library, before invoking runc. runc ≥ 1.1.0 also has built-in CDI support, so an alternative integration is to pass CDI names through and let runc apply them; which approach CF standardizes on is a follow-up design decision.
 
 ---
 
@@ -148,8 +160,8 @@ CDI (Container Device Interface) decouples *how* a device is exposed from *which
    - Filesystem mounts (`mounts`)
    - Environment variables (`env`)
 
-2. **Container runtime** (runc ≥ 1.1.0) reads the spec and applies all edits before starting the container.
+2. **A CDI consumer** reads the spec and applies all edits before the container starts. This can be the runtime itself (runc ≥ 1.1.0 has built-in CDI support) or a CDI library invoked one layer up; this POC does the latter, in guardian.
 
-3. **Orchestrator** (garden-runc / Executor) only needs to pass the *name* `"nvidia.com/gpu=0"` — it never hard-codes device numbers.
+3. **Orchestrator** (garden-runc / Executor) only needs to reference the *name* `"nvidia.com/gpu=0"`; it never hard-codes device numbers.
 
 This makes GPU support portable: changing the CDI spec is enough to update the device topology without redeploying Diego or garden-runc.

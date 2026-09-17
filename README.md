@@ -23,7 +23,16 @@ A reference/prototype implementation that extends Cloud Foundry to schedule, all
   BOSH-managed VM. Prerequisite for Garden/Diego integration.
 - See `bosh/gpu-test-release/manifests/container-gpu-test-noble.yml`.
 
-See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) for PoC assumptions.
+🧪 **Diego scheduling POC (in forks)**: a GPU request now flows through
+BBS → auctioneer → rep → executor → garden → guardian, with CAPI exposing GPU
+as a v3 app feature flag. The Diego-stack code lives in forks under
+[`github.com/ZPascal`](https://github.com/ZPascal) and the CAPI change on an
+upstream `cloud_controller_ng` branch — nothing merged upstream yet. See the
+[POC forks reference](docs/poc-forks.md).
+
+See [Summary & Outlook](docs/summary-and-outlook.md) for the presentation
+overview, [Roadmap](docs/roadmap.md) for the full plan, and
+[Shortcuts](docs/shortcuts.md) for PoC assumptions.
 
 ---
 
@@ -32,7 +41,7 @@ See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) 
 ```
   Developer
      │
-     │  cf push myapp --gpu 1
+     │  cf push myapp (gpu: true)
      ▼
  ┌──────────┐    REST     ┌──────────┐   BBS RPC  ┌─────────────┐
  │  CF CLI  │────────────▶│  CAPI    │────────────▶│     BBS     │
@@ -43,7 +52,7 @@ See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) 
                                                    │  Diego Auc- │
                                                    │  tioneer    │
                                                    └──────┬──────┘
-                                                          │ BidForGPU
+                                                          │ gate on GPU capacity
                                           ┌───────────────┴────────────────┐
                                           ▼                                ▼
                                    ┌─────────────┐                 ┌─────────────┐
@@ -91,8 +100,8 @@ See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) 
 | Diego Rep | `rep/gpu_capacity.go` | Advertise GPU capacity; score bids in auction |
 | Diego Executor | `executor/gpu_manager.go` | Discover, allocate, and release GPU devices |
 | BBS | `bbs/models/gpu.proto` | Carry `GPURequest` in LRP/Task run-info |
-| CAPI | `capi/` | Accept `gpu` field in process update API; persist to BBS |
-| CF CLI | (standard CLI) | Pass `--gpu` / manifest `gpu: 1` through to CAPI |
+| CAPI | `capi/` | Expose GPU as a v3 app feature flag (`gpu_enabled`); persist to BBS |
+| CF CLI | (standard CLI) | Pass manifest `gpu: true` / app-feature through to CAPI |
 | Monitoring | `monitoring/gpu_metrics.go` | Collect per-container GPU utilization; emit to Loggregator |
 | BOSH | `bosh/` | Deploy GPU cells with nvidia-container-toolkit job |
 
@@ -105,15 +114,15 @@ See [Roadmap](docs/roadmap.md) for full plan and [Shortcuts](docs/shortcuts.md) 
 
 2. **Operator** registers the CDI spec dir with garden-runc (via `--cdi-spec-dirs` flag).
 
-3. **Developer** pushes an app with GPU resources:
+3. **Developer** pushes an app with GPU enabled:
    ```
    cf push myapp -f manifest.yml
-   # manifest.yml contains:  resources: { gpu: 1, gpu_type: nvidia }
+   # manifest.yml contains:  gpu: true
    ```
 
-4. **CAPI** accepts the request via `PATCH /v3/processes/:guid` and stores `GPURequest` in the BBS desired LRP.
+4. **CAPI** records the `gpu_enabled` app feature and carries a `GPURequest` into the BBS desired LRP. (The POC uses a boolean feature flag; a count/type resource model is a deferred RFC question.)
 
-5. **Diego Auctioneer** calls each Rep's `/state` endpoint; Reps with GPUs report `gpu_capacity` and win the bid via `BidForGPU`.
+5. **Diego Auctioneer** calls each Rep's `/state` endpoint; Reps with GPUs report `gpu_capacity`, and the auction gates a GPU-requesting LRP onto a cell with free GPU capacity.
 
 6. **Diego Executor** calls `GPUManager.Allocate()`, obtains a GPU index, builds a `ContainerSpec` with `CDIDevices: [{Name: "nvidia.com/gpu=0"}]`, and passes it to garden-runc.
 
@@ -168,6 +177,8 @@ cf-gpuccino/
 
 ## Further Reading
 
+- [Summary & Outlook](docs/summary-and-outlook.md) – Presentation overview: what was built, what's next
+- [POC Forks & Branches](docs/poc-forks.md) – Where the Diego scheduling code lives
 - [Roadmap](docs/roadmap.md) – Implementation phases and progress
 - [Architecture Details](docs/architecture.md)
 - [Deployment Guide](docs/deployment.md)
